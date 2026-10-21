@@ -32,6 +32,9 @@ JSON_ASSIGNMENT_REGEX = re.compile(
 ASSIGNMENT_REGEX = re.compile(
     rf'(?i)(["\']?{SENSITIVE_KEY_PATTERN}["\']?\s*[:=]\s*)(["\']?)(?!(?:\[REDACTED\]|Bearer\b))([^"\'\s,;}}&]+)(\2)'
 )
+TRAILING_KEY_REGEX = re.compile(
+    rf'(?i)(["\']?{SENSITIVE_KEY_PATTERN}["\']?\s*[:=]\s*)(["\']?)$'
+)
 
 
 def redact_url_credentials(url: str) -> str:
@@ -63,11 +66,12 @@ def redact_free_text(text: str, max_length: int = 65536) -> str:
     - URL userinfo and sensitive query parameters
     - Bearer authorization headers/tokens
     - Key=value, key: value, and JSON-encoded credential pairs
+    - Fail-closed truncation at max_length with [TRUNCATED] marker (never appends raw suffix)
     """
     if not text or not isinstance(text, str):
         return text
 
-    # Bound processing length to prevent excessive regex processing
+    is_truncated = len(text) > max_length
     target = text[:max_length]
 
     # 1. Redact embedded URL credentials and query parameters
@@ -82,8 +86,11 @@ def redact_free_text(text: str, max_length: int = 65536) -> str:
     # 4. Redact key=val or key: val assignments
     sanitized = ASSIGNMENT_REGEX.sub(r"\1\2[REDACTED]\4", sanitized)
 
-    if len(text) > max_length:
-        sanitized += text[max_length:]
+    # 5. Redact trailing sensitive key severed at truncation boundary
+    sanitized = TRAILING_KEY_REGEX.sub(r"\1[REDACTED]\2", sanitized)
+
+    if is_truncated:
+        sanitized = f"{sanitized} [TRUNCATED]"
 
     return sanitized
 

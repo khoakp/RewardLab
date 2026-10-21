@@ -525,6 +525,12 @@ def inspect_workflow_plan(
                 dest_status = "DENIED"
                 dest_reason = "Path traversal sequences '..' are prohibited"
                 destination_violations.append(f"Step '{step.id}': {dest_reason}")
+            elif re.search(r"\{[^{}]+\}|<[^<>]+>", path_str):
+                dest_status = "UNRESOLVED"
+                dest_reason = (
+                    "Path contains dynamic template parameters that require runtime resolution"
+                )
+                unresolved_destinations.append(f"Step '{step.id}': {dest_reason}")
             elif path_str.startswith("/"):
                 dest_status = "ALLOWED"
                 dest_reason = "Valid relative application path"
