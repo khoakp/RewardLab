@@ -16,6 +16,7 @@ from sqlalchemy import delete, desc, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.observability.logging import redact_data, redact_free_text
 from app.persistence.models import (
     AccountAuthState,
     AccountExecutionLockModel,
@@ -606,11 +607,61 @@ class JobRepository:
         if error_code is not None:
             job.error_code = error_code
         if error_message is not None:
-            job.error_message = error_message
+            job.error_message = redact_free_text(error_message)
         if result_ref is not None:
             job.result_ref = result_ref
 
         await self.session.flush()
+        return job
+
+    async def atomic_review_job(
+        self,
+        job_id: str,
+        target_status: JobStatus,
+        error_code: str,
+        error_message: str,
+    ) -> JobModel | None:
+        """Atomically transitions a job from PAUSED_FOR_REVIEW to target_status.
+
+        Allowed targets: CANCELLED or REJECTED.
+        Uses conditional UPDATE:
+        UPDATE jobs
+        SET status = :target_status,
+            error_code = :error_code,
+            error_message = :error_message,
+            finished_at = :now,
+            updated_at = :now
+        WHERE id = :job_id AND status = 'PAUSED_FOR_REVIEW'
+
+        Returns the updated JobModel if exactly 1 row was updated, or None if the job was not
+        in PAUSED_FOR_REVIEW (already transitioned or conflicting concurrent review).
+        """
+        now = utc_now()
+        sanitized_error = redact_free_text(error_message) if error_message else None
+        stmt = (
+            update(JobModel)
+            .where(
+                JobModel.id == job_id,
+                JobModel.status == JobStatus.PAUSED_FOR_REVIEW.value,
+            )
+            .values(
+                status=target_status.value,
+                error_code=error_code,
+                error_message=sanitized_error,
+                finished_at=now,
+                updated_at=now,
+            )
+        )
+        res = await self.session.execute(stmt)
+        if (res.rowcount or 0) != 1:
+            return None
+
+        # Fetch the updated model
+        stmt_sel = select(JobModel).where(JobModel.id == job_id)
+        job_res = await self.session.execute(stmt_sel)
+        job = job_res.scalar_one_or_none()
+        if job:
+            await self.release_account_execution_lock(account_id=job.account_id, job_id=job.id)
         return job
 
     async def record_step_result(
@@ -625,7 +676,10 @@ class JobRepository:
         error_message: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> JobStepModel:
-        """Records or updates step execution status."""
+        """Records or updates step execution status with write-time credential sanitization."""
+        sanitized_error = redact_free_text(error_message) if error_message else None
+        sanitized_details = redact_data(details) if details else None
+
         stmt = select(JobStepModel).where(
             JobStepModel.job_id == job_id,
             JobStepModel.step_key == step_key,
@@ -644,8 +698,8 @@ class JobRepository:
                 started_at=started_at or utc_now(),
                 finished_at=finished_at,
                 error_code=error_code,
-                error_message=error_message,
-                details_json=details,
+                error_message=sanitized_error,
+                details_json=sanitized_details,
             )
             self.session.add(step)
         else:
@@ -653,10 +707,10 @@ class JobRepository:
             step.finished_at = finished_at or utc_now()
             if error_code:
                 step.error_code = error_code
-            if error_message:
-                step.error_message = error_message
-            if details:
-                step.details_json = details
+            if sanitized_error:
+                step.error_message = sanitized_error
+            if sanitized_details:
+                step.details_json = sanitized_details
 
         await self.session.flush()
         return step
@@ -685,12 +739,13 @@ class AuditEventRepository:
         outcome: str,
         sanitized_details: dict[str, Any] | None = None,
     ) -> AuditEventModel:
+        sanitized = redact_data(sanitized_details) if sanitized_details else None
         event = AuditEventModel(
             actor=actor,
             action=action,
             resource=resource,
             outcome=outcome,
-            sanitized_details=sanitized_details,
+            sanitized_details=sanitized,
         )
         self.session.add(event)
         await self.session.flush()

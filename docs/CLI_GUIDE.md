@@ -201,9 +201,12 @@ adbap jobs review <job-id> --decision {cancel,reject} --reason "..." [--actor NA
 
 | Subcommand | Description |
 |---|---|
-| `list` | Lists jobs filtered by status (default: `PAUSED_FOR_REVIEW`) or account ID with formatted table or JSON. |
-| `show` | Displays job details, execution outcome, unverified/verified mutations, executed steps, pause reason, and audit trail. Redacts all credentials and secrets. |
-| `review` | Applies a safe operator review decision (`cancel` or `reject`). Mandatory non-empty `--reason` required. Transitions directly to `SUCCEEDED` are strictly prohibited. |
+| `list` | Lists jobs filtered by status (default: `PAUSED_FOR_REVIEW`) or account ID with formatted table or JSON. Redacts all free-text credentials and URL tokens. |
+| `show` | Displays job details, execution outcome, causal verification evidence (verified/unverified mutations, causal mappings), executed steps, pause reason, and audit trail. Sanitizes all free-text secrets at read time. |
+| `review` | Applies an atomic operator review decision (`cancel` or `reject`). Mandatory non-empty `--reason` (1..1024 chars). Write-time sanitized before SQLite commit. Transitions directly to `SUCCEEDED` are strictly prohibited. |
+
+> [!SECURITY]
+> **CLI Argument Visibility Warning:** Arguments passed via the command line (such as `--reason`) may be temporarily visible in OS process listings (`ps -ef` or Task Manager). Operators must **never** pass raw passwords, cookies, or authorization tokens in CLI arguments.
 
 ### 5.3 Review Workflow Example
 
@@ -211,10 +214,10 @@ adbap jobs review <job-id> --decision {cancel,reject} --reason "..." [--actor NA
 # 1. List paused jobs
 uv run adbap jobs list --status PAUSED_FOR_REVIEW
 
-# 2. Inspect the paused job
+# 2. Inspect the paused job with causal verification evidence
 uv run adbap jobs show job_0192d4f2
 
-# 3. Reject or cancel the job with explicit reasoning
+# 3. Reject or cancel the job with explicit reasoning (atomic compare-and-set)
 uv run adbap jobs review job_0192d4f2 --decision cancel --reason "Operator verified mutation manually on server"
 ```
 
@@ -230,10 +233,23 @@ The `adbap inspect-workflow` command provides a fast, zero-browser static inspec
 adbap inspect-workflow <workflow-file> [--json]
 ```
 
-### 6.2 Capabilities
+### 6.2 Preflight Evaluation Semantics
+
+`adbap inspect-workflow` outputs one of three explicit preflight verdicts:
+
+| Verdict | Meaning |
+|---|---|
+| `ALLOWED` | All statically verifiable conditions (provider authorization, requested capabilities, step action types, schemes, domain allowlists, destination ports) are valid. |
+| `DENIED` | One or more static conditions violate provider policy (e.g. unknown provider, companion-only Microsoft Rewards, disallowed action, forbidden port, out-of-allowlist domain). |
+| `UNRESOLVED` | The workflow contains dynamic components (such as `{template_var}` parameters in navigation URLs) that static analysis cannot guarantee pre-dispatch. Requires runtime enforcement. |
+
+> [!NOTE]
+> Static `ALLOWED` indicates the plan satisfies static policy constraints, but does not guarantee runtime safety. Runtime defenses (HTTP redirect guards, DNS validation, and network interception) remain strictly active during browser execution.
+
+### 6.3 Capabilities
 
 - **Zero Browser Allocation:** Inspects workflows without launching Chromium or opening network sockets.
-- **Pre-Dispatch Policy Validation:** Statically evaluates `ProviderPolicy` (e.g., rejecting Microsoft Rewards or unapproved capabilities with clear explanations).
+- **Pre-Dispatch Policy Validation:** Statically evaluates `ProviderPolicy` (action allowlists, domain allowlists, schemes, ports, and capabilities).
 - **Causal Mapping Analysis:** Maps mutating steps to their corresponding `verifies_step_ids` postconditions and alerts on unverified mutations or missing verification steps.
 - **Locator Strategy Inspection:** Prints targeted actions and locator strategies for auditability.
 

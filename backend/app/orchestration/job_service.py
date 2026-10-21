@@ -707,7 +707,7 @@ class JobService:
         audit_res = await self.session.execute(stmt_audit)
         audit_records = list(audit_res.scalars().all())
 
-        from app.observability.logging import redact_data
+        from app.observability.logging import redact_data, redact_free_text
 
         serialized_steps = []
         for s in steps:
@@ -719,13 +719,17 @@ class JobService:
                     "started_at": s.started_at.isoformat() if s.started_at else None,
                     "finished_at": s.finished_at.isoformat() if s.finished_at else None,
                     "error_code": s.error_code,
-                    "error_message": s.error_message,
+                    "error_message": redact_free_text(s.error_message) if s.error_message else None,
                     "details": redact_data(s.details_json) if s.details_json else None,
                 }
             )
 
         serialized_audits = []
+        causal_event: dict[str, Any] | None = None
         for a in audit_records:
+            sanitized_det = redact_data(a.sanitized_details) if a.sanitized_details else None
+            if a.action == "job.causal_verification" and sanitized_det:
+                causal_event = sanitized_det
             serialized_audits.append(
                 {
                     "id": a.id,
@@ -733,9 +737,36 @@ class JobService:
                     "action": a.action,
                     "outcome": a.outcome,
                     "created_at": a.created_at.isoformat() if a.created_at else None,
-                    "details": redact_data(a.sanitized_details) if a.sanitized_details else None,
+                    "details": sanitized_det,
                 }
             )
+
+        if causal_event:
+            causal_verification = {
+                "recorded": True,
+                "outcome_type": causal_event.get("outcome_type") or "NOT_RECORDED",
+                "requires_verification": causal_event.get("requires_verification", False),
+                "verified_mutations": causal_event.get("verified_mutations", []),
+                "unverified_mutations": causal_event.get("unverified_mutations", []),
+                "causal_mappings": causal_event.get("causal_mappings", {}),
+                "error_code": causal_event.get("error_code"),
+            }
+        else:
+            causal_verification = {
+                "recorded": False,
+                "outcome_type": "NOT_RECORDED",
+                "requires_verification": "NOT_RECORDED",
+                "verified_mutations": "NOT_RECORDED",
+                "unverified_mutations": "NOT_RECORDED",
+                "causal_mappings": "NOT_RECORDED",
+                "error_code": None,
+            }
+
+        pause_reason = (
+            redact_free_text(job.error_message)
+            if job.status == JobStatus.PAUSED_FOR_REVIEW.value and job.error_message
+            else None
+        )
 
         detail = {
             "job_id": job.id,
@@ -746,11 +777,9 @@ class JobService:
             "workflow_version": wf.version if wf else None,
             "status": job.status,
             "is_paused_for_review": job.status == JobStatus.PAUSED_FOR_REVIEW.value,
-            "pause_reason": job.error_message
-            if job.status == JobStatus.PAUSED_FOR_REVIEW.value
-            else None,
+            "pause_reason": pause_reason,
             "error_code": job.error_code,
-            "error_message": job.error_message,
+            "error_message": redact_free_text(job.error_message) if job.error_message else None,
             "attempt": job.attempt,
             "max_attempts": job.max_attempts,
             "created_at": job.created_at.isoformat() if job.created_at else None,
@@ -759,6 +788,7 @@ class JobService:
             "finished_at": job.finished_at.isoformat() if job.finished_at else None,
             "updated_at": job.updated_at.isoformat() if job.updated_at else None,
             "result_ref": job.result_ref,
+            "causal_verification": causal_verification,
             "steps": serialized_steps,
             "audit_events": serialized_audits,
         }
@@ -776,10 +806,11 @@ class JobService:
         Enforces:
         - Job must currently be in PAUSED_FOR_REVIEW.
         - Allowed decisions: 'cancel' -> CANCELLED, 'reject' -> REJECTED.
-        - Reason cannot be empty.
+        - Reason cannot be empty and max 1024 characters.
+        - Write-time secret redaction on reason.
         - Direct transition to SUCCEEDED is prohibited.
-        - Records immutable audit event.
-        - Transitions job state via state machine.
+        - Atomic conditional transition at database level.
+        - Records immutable audit event in the same transaction.
         """
         clean_dec = decision.strip().lower()
         if clean_dec not in ("cancel", "reject"):
@@ -787,42 +818,49 @@ class JobService:
                 f"Invalid review decision '{decision}'. Allowed decisions are 'cancel' or 'reject'."
             )
 
-        clean_reason = reason.strip()
+        clean_reason = reason.strip() if reason else ""
         if not clean_reason:
             raise ValueError("Operator review requires a non-empty reason.")
+        if len(clean_reason) > 1024:
+            raise ValueError(
+                f"Review reason exceeds maximum allowed length of 1024 characters "
+                f"({len(clean_reason)})."
+            )
 
-        job = await self.job_repo.get_by_id(job_id)
-        if job is None:
-            raise ValueError(f"Job '{job_id}' not found.")
+        from app.observability.logging import redact_free_text
 
-        current_status = JobStatus(job.status)
-        if current_status != JobStatus.PAUSED_FOR_REVIEW:
+        sanitized_reason = redact_free_text(clean_reason)
+        target_status = JobStatus.CANCELLED if clean_dec == "cancel" else JobStatus.REJECTED
+
+        # Atomic conditional update at database level (ensures zero concurrent review race)
+        updated_job = await self.job_repo.atomic_review_job(
+            job_id=job_id,
+            target_status=target_status,
+            error_code=f"OPERATOR_{clean_dec.upper()}",
+            error_message=f"Operator review decision [{clean_dec.upper()}]: {sanitized_reason}",
+        )
+
+        if updated_job is None:
+            existing_job = await self.job_repo.get_by_id(job_id)
+            if existing_job is None:
+                raise ValueError(f"Job '{job_id}' not found.")
             from app.orchestration.state_machine import IllegalStateTransitionError
 
             raise IllegalStateTransitionError(
-                f"Job '{job_id}' is in status '{current_status.value}', not 'PAUSED_FOR_REVIEW'. "
+                f"Job '{job_id}' is in status '{existing_job.status}', not 'PAUSED_FOR_REVIEW'. "
                 "Only paused jobs can be reviewed."
             )
-
-        target_status = JobStatus.CANCELLED if clean_dec == "cancel" else JobStatus.REJECTED
-
-        updated_job = await self.job_repo.transition_job_status(
-            job_id=job.id,
-            new_status=target_status,
-            error_code=f"OPERATOR_{clean_dec.upper()}",
-            error_message=f"Operator review decision [{clean_dec.upper()}]: {clean_reason}",
-        )
 
         await self.audit_repo.record_event(
             actor=actor,
             action=f"jobs.review.{clean_dec}",
-            resource=f"job:{job.id}",
+            resource=f"job:{updated_job.id}",
             outcome=clean_dec,
             sanitized_details={
-                "job_id": job.id,
-                "account_id": job.account_id,
+                "job_id": updated_job.id,
+                "account_id": updated_job.account_id,
                 "decision": clean_dec,
-                "reason": clean_reason,
+                "reason": sanitized_reason,
                 "previous_status": JobStatus.PAUSED_FOR_REVIEW.value,
                 "target_status": target_status.value,
             },

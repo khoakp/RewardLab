@@ -36,6 +36,7 @@ from app.execution.browser_manager import BrowserManager
 from app.observability.logging import (
     get_logger,
     redact_data,
+    redact_free_text,
     redact_url_credentials,
 )
 from app.observability.metrics import WorkerMetricsTracker
@@ -52,7 +53,7 @@ from app.workflows.results import (
     WorkflowExecutionStatus,
     WorkflowOutcomeType,
 )
-from app.workflows.schema import WorkflowDefinition
+from app.workflows.schema import VerifyStateStep, WorkflowDefinition
 
 logger = get_logger("adbap.workers.local_worker")
 
@@ -528,6 +529,7 @@ class LocalWorker:
                     )
 
         heartbeat_task = asyncio.create_task(_heartbeat_loop(), name=f"heartbeat-{info.job_id}")
+        wf_def: WorkflowDefinition | None = None
 
         try:
             # 1. Evaluate provider policy
@@ -658,11 +660,7 @@ class LocalWorker:
                         attempt=info.attempt,
                         status=st_status,
                         error_code=step_res.error_code,
-                        error_message=(
-                            redact_url_credentials(step_res.error_message)
-                            if step_res.error_message
-                            else None
-                        ),
+                        error_message=step_res.error_message,
                         details={
                             "action": step_res.action,
                             "outcome_type": (
@@ -672,8 +670,48 @@ class LocalWorker:
                             ),
                             "duration_ms": step_res.duration_ms,
                             "output_data": redact_data(step_res.output_data),
+                            "causal_status": (
+                                "verified"
+                                if step_res.step_id in (result.verified_mutations or [])
+                                else (
+                                    "unverified"
+                                    if step_res.step_id in (result.unverified_mutations or [])
+                                    else "not_mutating"
+                                )
+                            ),
                         },
                     )
+
+                # Persist causal verification evidence as immutable audit event
+                causal_mappings = {}
+                if wf_def:
+                    for s in wf_def.steps:
+                        if isinstance(s, VerifyStateStep) and s.verifies_step_ids:
+                            causal_mappings[s.id] = list(s.verifies_step_ids)
+
+                await job_service.audit_repo.record_event(
+                    actor=self.worker_id,
+                    action="job.causal_verification",
+                    resource=f"job:{info.job_id}",
+                    outcome=(
+                        result.outcome_type.value
+                        if result.outcome_type
+                        else "UNKNOWN"
+                    ),
+                    sanitized_details={
+                        "execution_id": result.execution_id,
+                        "outcome_type": (
+                            result.outcome_type.value
+                            if result.outcome_type
+                            else None
+                        ),
+                        "requires_verification": result.requires_verification,
+                        "verified_mutations": list(result.verified_mutations or []),
+                        "unverified_mutations": list(result.unverified_mutations or []),
+                        "causal_mappings": causal_mappings,
+                        "error_code": result.error_code,
+                    },
+                )
 
                 # Final state transition with lease token fencing check.
                 # Do not mark SUCCEEDED if outcome unconfirmed, provider rejected,
@@ -702,7 +740,7 @@ class LocalWorker:
                 elif result.status == WorkflowExecutionStatus.CANCELLED:
                     await job_service.cancel_job(
                         job_id=info.job_id,
-                        reason=redact_url_credentials(result.error_message) or "Cancelled",
+                        reason=redact_free_text(result.error_message) or "Cancelled",
                         actor=self.worker_id,
                     )
                     self._stats["cancelled"] += 1
@@ -731,7 +769,7 @@ class LocalWorker:
                         worker_id=self.worker_id,
                         lease_token=info.lease_token,
                         error_code=err_code,
-                        error_message=redact_url_credentials(result.error_message),
+                        error_message=redact_free_text(result.error_message),
                         requires_verification=req_verif,
                         actor=self.worker_id,
                     )

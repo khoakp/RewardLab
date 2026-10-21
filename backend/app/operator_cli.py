@@ -14,12 +14,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 from app.core.policy import default_evaluator
-from app.observability.logging import get_logger, redact_data, redact_url_credentials
+from app.observability.logging import (
+    get_logger,
+    redact_data,
+    redact_free_text,
+    redact_url_credentials,
+)
 from app.orchestration.job_service import JobService
 from app.orchestration.state_machine import (
     IllegalStateTransitionError,
@@ -256,6 +262,19 @@ async def execute_jobs_async(args: argparse.Namespace) -> tuple[int, str]:
                     f"Updated At:         {detail['updated_at'] or '-'}",
                     f"Finished At:        {detail['finished_at'] or '-'}",
                     f"Result Ref:         {detail['result_ref'] or '-'}",
+                ]
+            )
+
+            cv = detail.get("causal_verification") or {}
+            lines.extend(
+                [
+                    "-" * 80,
+                    "CAUSAL VERIFICATION EVIDENCE:",
+                    f"  Outcome Type:         {cv.get('outcome_type', 'NOT_RECORDED')}",
+                    f"  Verification Required:{cv.get('requires_verification', 'NOT_RECORDED')}",
+                    f"  Verified Mutations:   {cv.get('verified_mutations', 'NOT_RECORDED')}",
+                    f"  Unverified Mutations: {cv.get('unverified_mutations', 'NOT_RECORDED')}",
+                    f"  Causal Mappings:      {cv.get('causal_mappings', 'NOT_RECORDED')}",
                     "-" * 80,
                     f"EXECUTED STEPS ({len(detail['steps'])}):",
                 ]
@@ -317,12 +336,12 @@ async def execute_jobs_async(args: argparse.Namespace) -> tuple[int, str]:
                     f"Job '{updated_job.id}' successfully reviewed.\n"
                     f"Decision:     {args.decision.upper()}\n"
                     f"New Status:   {updated_job.status}\n"
-                    f"Reason:       {args.reason}\n"
+                    f"Reason:       {res_dict['reason']}\n"
                     f"Actor:        {args.actor}"
                 )
 
             except (IllegalStateTransitionError, TerminalStateModificationError, ValueError) as err:
-                clean_err = redact_url_credentials(str(err))
+                clean_err = redact_free_text(str(err))
                 if args.output_json:
                     return 1, json.dumps(
                         {"error": "REVIEW_REJECTED", "message": clean_err}, indent=2
@@ -431,10 +450,13 @@ def inspect_workflow_plan(
         else:
             policy_checks["capabilities_granted"] = True
 
-    # Build Step Execution Plan and Causal Verification Analysis
+    # Build Step Execution Plan, Policy Checks, and Causal Verification Analysis
     steps_plan: list[dict[str, Any]] = []
     mutating_steps: list[str] = []
     verified_steps: set[str] = set()
+    action_violations: list[str] = []
+    destination_violations: list[str] = []
+    unresolved_destinations: list[str] = []
 
     for idx, step in enumerate(workflow_def.steps, 1):
         is_mut = is_step_mutating(step)
@@ -449,6 +471,68 @@ def inspect_workflow_plan(
                 # Legacy single unambiguous mapping
                 verified_steps.add(mutating_steps[0])
 
+        # 1. Action-level permission check
+        action_allowed = True
+        action_reason = "Action permitted by policy"
+        if provider_policy:
+            if step.action not in provider_policy.allowed_actions:
+                action_allowed = False
+                action_reason = (
+                    f"Action '{step.action}' is not in allowed actions for provider '{provider}'"
+                )
+                action_violations.append(f"Step '{step.id}': {action_reason}")
+        else:
+            action_allowed = False
+            action_reason = f"Provider '{provider}' not authorized"
+            action_violations.append(f"Step '{step.id}': {action_reason}")
+
+        # 2. Destination URL / path check
+        dest_status = "N/A"
+        dest_reason = None
+        target_url = getattr(step, "url", None)
+        target_path = getattr(step, "path", None)
+
+        if target_url:
+            raw_url = str(target_url).strip()
+            # Detect unresolved dynamic template expressions e.g. {param} or <param>
+            if re.search(r"\{[^{}]+\}|<[^<>]+>", raw_url):
+                dest_status = "UNRESOLVED"
+                dest_reason = (
+                    "URL contains dynamic template parameters that require runtime resolution"
+                )
+                unresolved_destinations.append(f"Step '{step.id}': {dest_reason}")
+            else:
+                valid, url_reason, sanitized_url = evaluator.validate_static_url(
+                    raw_url,
+                    provider_policy.domain_allowlist if provider_policy else [],
+                    allowed_ports=provider_policy.allowed_ports if provider_policy else [],
+                )
+                if not valid:
+                    dest_status = "DENIED"
+                    dest_reason = url_reason
+                    destination_violations.append(f"Step '{step.id}': {url_reason}")
+                else:
+                    dest_status = "ALLOWED"
+                    dest_reason = "Destination URL matches provider allowlist"
+
+        elif target_path:
+            path_str = str(target_path).strip()
+            if path_str.startswith("//") or "://" in path_str:
+                dest_status = "DENIED"
+                dest_reason = "Path must be a relative path, not a scheme-relative or foreign URL"
+                destination_violations.append(f"Step '{step.id}': {dest_reason}")
+            elif ".." in path_str:
+                dest_status = "DENIED"
+                dest_reason = "Path traversal sequences '..' are prohibited"
+                destination_violations.append(f"Step '{step.id}': {dest_reason}")
+            elif path_str.startswith("/"):
+                dest_status = "ALLOWED"
+                dest_reason = "Valid relative application path"
+            else:
+                dest_status = "UNRESOLVED"
+                dest_reason = "Path lacks leading slash; requires runtime resolution"
+                unresolved_destinations.append(f"Step '{step.id}': {dest_reason}")
+
         step_info = {
             "index": idx,
             "id": step.id,
@@ -456,16 +540,53 @@ def inspect_workflow_plan(
             "target": str(getattr(step, "target", None)) if getattr(step, "target", None) else None,
             "is_mutating": is_mut,
             "verifies_step_ids": verifies,
+            "action_allowed": action_allowed,
+            "action_reason": action_reason,
+            "destination_status": dest_status,
+            "destination_reason": dest_reason,
         }
         steps_plan.append(step_info)
 
     unverified_mutations = [mid for mid in mutating_steps if mid not in verified_steps]
+
+    # Compute overall Preflight Verdict
+    if (
+        not provider_policy
+        or not provider_policy.automation_allowed
+        or not policy_checks["capabilities_granted"]
+    ):
+        preflight_verdict = "DENIED"
+        verdict_reason = policy_checks["policy_reason"]
+    elif action_violations or destination_violations:
+        preflight_verdict = "DENIED"
+        reasons = action_violations + destination_violations
+        verdict_reason = "; ".join(reasons)
+    elif unresolved_destinations:
+        preflight_verdict = "UNRESOLVED"
+        verdict_reason = "; ".join(unresolved_destinations)
+    else:
+        preflight_verdict = "ALLOWED"
+        verdict_reason = (
+            "All static preflight checks passed. Note: runtime redirects, DNS resolution, "
+            "and dynamic navigation are enforced at execution."
+        )
+
+    policy_checks["preflight_verdict"] = preflight_verdict
+    policy_checks["verdict_reason"] = verdict_reason
+    policy_checks["allowed_actions"] = (
+        sorted(provider_policy.allowed_actions) if provider_policy else []
+    )
+    policy_checks["allowed_ports"] = provider_policy.allowed_ports if provider_policy else []
+    policy_checks["action_violations"] = action_violations
+    policy_checks["destination_violations"] = destination_violations
+    policy_checks["unresolved_destinations"] = unresolved_destinations
 
     inspection = {
         "workflow_id": workflow_def.id,
         "schema_version": workflow_def.schema_version,
         "provider": workflow_def.provider,
         "description": workflow_def.description,
+        "preflight_verdict": preflight_verdict,
         "execution_limits": {
             "timeout_seconds": workflow_def.execution.timeout_seconds,
             "step_timeout_seconds": workflow_def.execution.step_timeout_seconds,
@@ -499,12 +620,15 @@ def run_inspect_cli(argv: list[str] | None = None) -> int:
         if exit_code != 0:
             output_text = f"Inspection Error: {report.get('message', 'Failed to inspect workflow')}"
         else:
+            pol = report["policy_evaluation"]
             lines = [
                 "=" * 80,
                 f"WORKFLOW INSPECTION: {report['workflow_id']} (Provider: {report['provider']})",
                 "=" * 80,
                 f"Schema Version:     {report['schema_version']}",
                 f"Description:        {report.get('description') or '-'}",
+                f"Preflight Verdict:  {pol['preflight_verdict']}",
+                f"Verdict Note:       {pol['verdict_reason']}",
                 f"Total Steps:        {report['total_steps']}",
                 f"Mutating Steps:     {report['mutating_step_count']}",
                 (
@@ -516,39 +640,51 @@ def run_inspect_cli(argv: list[str] | None = None) -> int:
                 "PROVIDER POLICY CHECK:",
                 (
                     "  Automation Allowed:   YES"
-                    if report["policy_evaluation"]["automation_allowed"]
+                    if pol["automation_allowed"]
                     else "  Automation Allowed:   NO (PROHIBITED)"
                 ),
                 (
                     "  Capabilities Granted: YES"
-                    if report["policy_evaluation"]["capabilities_granted"]
+                    if pol["capabilities_granted"]
                     else "  Capabilities Granted: NO"
                 ),
                 (
                     "  Allowed Domains:      "
-                    f"{', '.join(report['policy_evaluation']['allowlist_domains'])}"
-                    if report["policy_evaluation"]["allowlist_domains"]
+                    f"{', '.join(pol['allowlist_domains'])}"
+                    if pol["allowlist_domains"]
                     else "  Allowed Domains:      None"
                 ),
             ]
-            if report["policy_evaluation"].get("policy_reason"):
+            if pol.get("action_violations"):
+                lines.append(f"  Action Violations:    {'; '.join(pol['action_violations'])}")
+            if pol.get("destination_violations"):
+                lines.append(f"  URL Violations:       {'; '.join(pol['destination_violations'])}")
+            if pol.get("unresolved_destinations"):
                 lines.append(
-                    f"  Policy Reason:        {report['policy_evaluation']['policy_reason']}"
+                    f"  Unresolved Targets:   {'; '.join(pol['unresolved_destinations'])}"
                 )
 
             lines.extend(
                 [
                     "-" * 80,
-                    f"{'#':<3} {'STEP ID':<24} {'ACTION':<18} {'MUTATING':<10} {'VERIFIES':<20}",
+                    f"{'#':<3} {'STEP ID':<22} {'ACTION':<16} {'POLICY':<8} "
+                    f"{'MUTATING':<9} {'VERIFIES':<16}",
                     "-" * 80,
                 ]
             )
             for st in report["steps"]:
                 mut_str = "YES" if st["is_mutating"] else "no"
                 ver_str = ", ".join(st["verifies_step_ids"]) if st["verifies_step_ids"] else "-"
+                pol_str = (
+                    "ALLOW"
+                    if st["action_allowed"] and st["destination_status"] in ("ALLOWED", "N/A")
+                    else "UNRES"
+                    if st["destination_status"] == "UNRESOLVED"
+                    else "DENY"
+                )
                 lines.append(
-                    f"{st['index']:<3} {st['id']:<24} {st['action']:<18} "
-                    f"{mut_str:<10} {ver_str:<20}"
+                    f"{st['index']:<3} {st['id']:<22} {st['action']:<16} "
+                    f"{pol_str:<8} {mut_str:<9} {ver_str:<16}"
                 )
             lines.append("=" * 80)
             output_text = "\n".join(lines)
