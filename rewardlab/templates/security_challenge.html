@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Security Challenge Required{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 600px; margin: 2rem auto; text-align: center;">
+  <div style="font-size: 3rem; margin-bottom: 1rem;">🛡️</div>
+  <h2 data-testid="security-challenge-title">Security Challenge Detected</h2>
+  <div class="alert alert-danger" data-testid="security-challenge-alert" role="alert" style="margin: 1.5rem 0;">
+    <strong>Verification Required:</strong> An automated anomaly or MFA security checkpoint was encountered.
+    Automated bypass is strictly prohibited by policy.
+  </div>
+  <p class="text-muted">
+    Please notify the operator or resolve this verification manually in your personal session.
+  </p>
+  <div style="margin-top: 1.5rem;">
+    <a href="/dashboard" class="btn btn-secondary" data-testid="return-home-btn">Return to Dashboard</a>
+  </div>
+</div>
+{% endblock %}
