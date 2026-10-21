@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}RewardLab{% endblock %} — Synthetic Automation Testbed</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="synthetic-banner" data-testid="synthetic-notice">
+    ⚠️ <strong>RewardLab Synthetic Test Environment</strong> — Synthetic fixture data only. Do NOT enter real Microsoft credentials.
+  </div>
+
+  <header>
+    <a href="/dashboard" class="brand" data-testid="brand-logo">
+      <span>🧪</span> RewardLab
+    </a>
+
+    {% if user %}
+    <nav>
+      <a href="/dashboard" data-testid="nav-dashboard-link">Dashboard</a>
+      <a href="/tasks" data-testid="nav-tasks-link">Tasks</a>
+
+      <div class="user-badge">
+        <span data-testid="nav-username">{{ user.username }}</span>
+        <span class="points-pill" data-testid="nav-points">{{ user.points }} pts</span>
+      </div>
+
+      <form action="/logout" method="post" style="display: inline;">
+        <button type="submit" class="btn btn-secondary" data-testid="logout-btn" aria-label="Log out">Log out</button>
+      </form>
+    </nav>
+    {% endif %}
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

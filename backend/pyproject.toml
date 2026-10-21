@@ -1,0 +1,52 @@
+[project]
+name = "adbap-backend"
+version = "0.1.0"
+description = "Adaptive Distributed Browser Automation Platform (ADBAP) Control Plane"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "sqlalchemy>=2.0.36",
+    "aiosqlite>=0.20.0",
+    "pyyaml>=6.0.2",
+    "playwright>=1.64.0",
+    "alembic>=1.20.0",
+    "cryptography>=50.0.2",
+]
+
+[project.scripts]
+adbap = "app.cli:main"
+run-workflow = "app.cli:main"
+run-worker = "app.workers.local_worker:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.27.0",
+    "ruff>=0.7.0",
+    "jinja2>=3.1.6",
+    "python-multipart>=0.0.32",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = []
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

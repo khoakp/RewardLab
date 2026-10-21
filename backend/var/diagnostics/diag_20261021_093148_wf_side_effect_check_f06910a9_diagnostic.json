@@ -1,0 +1,41 @@
+{
+  "execution_id": "f06910a9",
+  "workflow_id": "wf_side_effect_check",
+  "workflow_schema_version": 1,
+  "provider": "rewardlab",
+  "account_id": "test_01",
+  "task_id": null,
+  "status": "TIMEOUT",
+  "error_code": "STEP_TIMEOUT",
+  "error_message": "Step 's2' timed out after 1.0s",
+  "duration_seconds": 1.157,
+  "requires_verification": true,
+  "can_retry": false,
+  "started_at": "2026-10-21T09:31:47.411054+00:00",
+  "completed_at": "2026-10-21T09:31:48.558185+00:00",
+  "current_url": "http://127.0.0.1:54184/login",
+  "page_title": "Log in — Synthetic Automation Testbed",
+  "failed_step": {
+    "step_id": "s2",
+    "action": "click",
+    "status": "TIMEOUT",
+    "duration_ms": 1015.0,
+    "error_code": "STEP_TIMEOUT",
+    "error_message": "Step 's2' timed out after 1.0s"
+  },
+  "completed_steps": [
+    {
+      "step_id": "s1",
+      "action": "navigate",
+      "status": "SUCCESS",
+      "duration_ms": 32.0
+    }
+  ],
+  "trace_policy": {
+    "native_trace_enabled": false,
+    "screenshot_captured": true,
+    "screenshot_suppressed_reason": null,
+    "trace_suppressed_reason": "Native trace disabled by default (least-privilege policy)."
+  },
+  "outputs": {}
+}

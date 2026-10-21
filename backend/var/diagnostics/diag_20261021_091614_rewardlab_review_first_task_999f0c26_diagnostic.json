@@ -1,0 +1,55 @@
+{
+  "execution_id": "999f0c26",
+  "workflow_id": "rewardlab_review_first_task",
+  "workflow_schema_version": 1,
+  "provider": "rewardlab",
+  "account_id": "test_01",
+  "task_id": null,
+  "status": "FAILED",
+  "error_code": "STATE_VERIFICATION_FAILED",
+  "error_message": "RewardLab API returned HTTP 403 on /api/accounts/test_01/tasks/task_01",
+  "duration_seconds": 0.703,
+  "requires_verification": true,
+  "can_retry": false,
+  "started_at": "2026-10-21T09:16:13.523539+00:00",
+  "completed_at": "2026-10-21T09:16:14.231955+00:00",
+  "current_url": "http://127.0.0.1:53292/tasks/task_01/review",
+  "page_title": "Review Daily Research Memo — Task Details — Synthetic Automation Testbed",
+  "failed_step": {
+    "step_id": "verify_completed",
+    "action": "verify_state",
+    "status": "FAILED",
+    "duration_ms": 15.0,
+    "error_code": "STATE_VERIFICATION_FAILED",
+    "error_message": "RewardLab API returned HTTP 403 on /api/accounts/test_01/tasks/task_01"
+  },
+  "completed_steps": [
+    {
+      "step_id": "open_tasks",
+      "action": "navigate",
+      "status": "SUCCESS",
+      "duration_ms": 78.0
+    },
+    {
+      "step_id": "read_task",
+      "action": "extract_text",
+      "status": "SUCCESS",
+      "duration_ms": 79.0
+    },
+    {
+      "step_id": "mark_reviewed",
+      "action": "click",
+      "status": "SUCCESS",
+      "duration_ms": 406.0
+    }
+  ],
+  "trace_policy": {
+    "native_trace_enabled": false,
+    "screenshot_captured": true,
+    "screenshot_suppressed_reason": null,
+    "trace_suppressed_reason": "Native trace disabled by default (least-privilege policy)."
+  },
+  "outputs": {
+    "task_desc": "Acknowledge and inspect synthetic research memo #101 regarding automation telemetry."
+  }
+}

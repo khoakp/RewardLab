@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Task Not Found{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 540px; margin: 3rem auto; text-align: center;">
+  <h1 class="card-title" style="color: var(--danger); font-size: 1.5rem;" data-testid="not-found-header">
+    Resource Not Found
+  </h1>
+  <p style="color: var(--text-muted); margin-bottom: 1.5rem;" data-testid="not-found-message">
+    The requested task or page does not exist in this synthetic test environment.
+  </p>
+  <a href="/tasks" class="btn btn-primary" data-testid="return-tasks-btn" aria-label="Return to Tasks">
+    Return to Tasks
+  </a>
+</div>
+{% endblock %}

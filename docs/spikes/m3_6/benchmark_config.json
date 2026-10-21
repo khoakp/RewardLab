@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-10-21T09:30:31.878205+00:00",
+  "machine": {
+    "os": "Windows-11-10.0.26300-SP0",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "logical_cpus": 20
+  },
+  "python_version": "3.12.15",
+  "chromium_version": "156.0.8078.4",
+  "workflow": {
+    "id": "rewardlab_review_first_task",
+    "version": 1,
+    "sha256": "52f044e74b878d9b19af48912a61c969bf98bbfd6cea4c6e512fabc9b65c2ec1",
+    "steps_count": 4
+  },
+  "accounts_count": 12,
+  "concurrency_levels": [
+    1,
+    2,
+    3
+  ],
+  "runs_per_concurrency": 5,
+  "warmup_runs_per_concurrency": 1,
+  "total_benchmark_runs": 15,
+  "total_jobs_evaluated": 180
+}

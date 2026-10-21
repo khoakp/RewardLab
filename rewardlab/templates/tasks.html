@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Tasks List{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+    <div>
+      <h1 class="card-title" data-testid="tasks-header" style="margin-bottom: 0.25rem;">Synthetic Tasks</h1>
+      <p style="color: var(--text-muted); font-size: 0.875rem;">
+        Review tasks to simulate workflow execution and fake point accrual.
+      </p>
+    </div>
+    <span class="points-pill" data-testid="tasks-balance-display">
+      Current: {{ user.points }} pts
+    </span>
+  </div>
+
+  {% if tasks %}
+  <div class="task-list" data-testid="tasks-list">
+    {% for task in tasks %}
+    <div class="task-card" data-testid="task-item-{{ task.id }}">
+      <div class="task-info">
+        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem;">
+          <h2 class="task-title" data-testid="task-title-{{ task.id }}">{{ task.title }}</h2>
+          <span 
+            class="status-badge {% if task.reviewed %}status-reviewed{% else %}status-pending{% endif %}"
+            data-testid="task-status-{{ task.id }}"
+          >
+            {% if task.reviewed %}Reviewed{% else %}Pending{% endif %}
+          </span>
+        </div>
+        <p class="task-desc" data-testid="task-description" data-testid-task="{{ task.id }}">
+          {{ task.description }}
+        </p>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <span style="font-size: 0.875rem; font-weight: 600; color: var(--primary);" data-testid="task-reward-{{ task.id }}">
+          +{{ task.reward_points }} pts
+        </span>
+        <a 
+          href="/tasks/{{ task.id }}" 
+          class="btn btn-secondary" 
+          data-testid="task-detail-link-{{ task.id }}" 
+          aria-label="View task details for {{ task.title }}"
+        >
+          View Details
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div style="text-align: center; padding: 2rem; color: var(--text-muted);" data-testid="empty-tasks-message">
+    <p>No tasks available for this test account.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

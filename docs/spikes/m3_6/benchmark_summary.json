@@ -1,0 +1,215 @@
+{
+  "concurrency_1": {
+    "concurrency": 1,
+    "runs_count": 5,
+    "jobs_evaluated": 60,
+    "throughput_jobs_per_sec": {
+      "runs": [
+        2.4932,
+        2.4072,
+        2.4615,
+        2.5946,
+        2.1818
+      ],
+      "median": 2.4615,
+      "mean": 2.4277,
+      "std_dev": 0.1534,
+      "min": 2.1818,
+      "max": 2.5946
+    },
+    "wall_clock_seconds": {
+      "runs": [
+        4.813,
+        4.985,
+        4.875,
+        4.625,
+        5.5
+      ],
+      "median": 4.875,
+      "mean": 4.9596,
+      "std_dev": 0.3291
+    },
+    "queue_latency_s": {
+      "p50": 2.7187,
+      "p95": 4.8565,
+      "median": 2.7187,
+      "mean": 2.7293,
+      "min": 0.3909,
+      "max": 5.457
+    },
+    "exec_duration_s": {
+      "p50": 0.3508,
+      "p95": 0.6069,
+      "median": 0.3508,
+      "mean": 0.3813,
+      "min": 0.3043,
+      "max": 0.6923
+    },
+    "e2e_latency_s": {
+      "p50": 3.0894,
+      "p95": 5.1819,
+      "median": 3.0894,
+      "mean": 3.1106,
+      "min": 0.7903,
+      "max": 5.7945
+    },
+    "resources": {
+      "worker_peak_rss_mb": 109.38,
+      "chromium_peak_rss_mb": 376.03,
+      "total_peak_rss_mb": 485.09,
+      "total_avg_cpu_pct": 6.24,
+      "max_observed_concurrency": 1
+    },
+    "correctness_invariants": {
+      "account_lock_conflicts": 0,
+      "duplicate_executions": 0,
+      "orphaned_account_locks": 0,
+      "job_loss_count": 0,
+      "browser_crashes": 0,
+      "sqlite_lock_errors": 0,
+      "cross_account_leakage": 0
+    }
+  },
+  "concurrency_2": {
+    "concurrency": 2,
+    "runs_count": 5,
+    "jobs_evaluated": 60,
+    "throughput_jobs_per_sec": {
+      "runs": [
+        4.3892,
+        4.5995,
+        4.6548,
+        4.682,
+        4.2433
+      ],
+      "median": 4.5995,
+      "mean": 4.5138,
+      "std_dev": 0.1899,
+      "min": 4.2433,
+      "max": 4.682
+    },
+    "wall_clock_seconds": {
+      "runs": [
+        2.734,
+        2.609,
+        2.578,
+        2.563,
+        2.828
+      ],
+      "median": 2.609,
+      "mean": 2.6624,
+      "std_dev": 0.1145
+    },
+    "queue_latency_s": {
+      "p50": 1.6006,
+      "p95": 2.6489,
+      "median": 1.6006,
+      "mean": 1.5605,
+      "min": 0.4085,
+      "max": 2.7353
+    },
+    "exec_duration_s": {
+      "p50": 0.3674,
+      "p95": 0.6089,
+      "median": 0.3674,
+      "mean": 0.3939,
+      "min": 0.3258,
+      "max": 0.6958
+    },
+    "e2e_latency_s": {
+      "p50": 2.0003,
+      "p95": 3.0026,
+      "median": 2.0003,
+      "mean": 1.9544,
+      "min": 0.8362,
+      "max": 3.1185
+    },
+    "resources": {
+      "worker_peak_rss_mb": 114.21,
+      "chromium_peak_rss_mb": 491.66,
+      "total_peak_rss_mb": 605.08,
+      "total_avg_cpu_pct": 9.21,
+      "max_observed_concurrency": 2
+    },
+    "correctness_invariants": {
+      "account_lock_conflicts": 0,
+      "duplicate_executions": 0,
+      "orphaned_account_locks": 0,
+      "job_loss_count": 0,
+      "browser_crashes": 0,
+      "sqlite_lock_errors": 0,
+      "cross_account_leakage": 0
+    }
+  },
+  "concurrency_3": {
+    "concurrency": 3,
+    "runs_count": 5,
+    "jobs_evaluated": 60,
+    "throughput_jobs_per_sec": {
+      "runs": [
+        4.8603,
+        4.9875,
+        4.7412,
+        5.0526,
+        4.7114
+      ],
+      "median": 4.8603,
+      "mean": 4.8706,
+      "std_dev": 0.1492,
+      "min": 4.7114,
+      "max": 5.0526
+    },
+    "wall_clock_seconds": {
+      "runs": [
+        2.469,
+        2.406,
+        2.531,
+        2.375,
+        2.547
+      ],
+      "median": 2.469,
+      "mean": 2.4656,
+      "std_dev": 0.0753
+    },
+    "queue_latency_s": {
+      "p50": 1.4337,
+      "p95": 2.2897,
+      "median": 1.4337,
+      "mean": 1.3951,
+      "min": 0.4624,
+      "max": 2.4502
+    },
+    "exec_duration_s": {
+      "p50": 0.471,
+      "p95": 0.6565,
+      "median": 0.471,
+      "mean": 0.5007,
+      "min": 0.3573,
+      "max": 0.7671
+    },
+    "e2e_latency_s": {
+      "p50": 1.9122,
+      "p95": 2.7535,
+      "median": 1.9122,
+      "mean": 1.8958,
+      "min": 0.9616,
+      "max": 2.8402
+    },
+    "resources": {
+      "worker_peak_rss_mb": 117.87,
+      "chromium_peak_rss_mb": 577.86,
+      "total_peak_rss_mb": 695.84,
+      "total_avg_cpu_pct": 11.94,
+      "max_observed_concurrency": 3
+    },
+    "correctness_invariants": {
+      "account_lock_conflicts": 0,
+      "duplicate_executions": 0,
+      "orphaned_account_locks": 0,
+      "job_loss_count": 0,
+      "browser_crashes": 0,
+      "sqlite_lock_errors": 0,
+      "cross_account_leakage": 0
+    }
+  }
+}

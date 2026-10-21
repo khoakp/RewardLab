@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+node_modules/
+.next/
+*.db
+*.sqlite*
+playwright/.auth/
+**/storage_state*.json
+**/browser_profiles/
+**/traces/
+**/screenshots_sensitive/
+*.log

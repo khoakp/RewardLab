@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}{{ task.title }} — Task Details{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 720px; margin: 0 auto;">
+  <div style="margin-bottom: 1.5rem;">
+    <a href="/tasks" class="btn btn-secondary" data-testid="back-to-tasks-btn" style="margin-bottom: 1rem;" aria-label="Back to Tasks">
+      &larr; Back to Tasks
+    </a>
+
+    {% if success_msg %}
+    <div class="alert alert-success" data-testid="review-success-alert" role="status">
+      {{ success_msg }}
+    </div>
+    {% endif %}
+
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+      <h1 class="card-title" data-testid="task-title" style="margin-bottom: 0.5rem;">
+        {{ task.title }}
+      </h1>
+      <span 
+        class="status-badge {% if task.reviewed %}status-reviewed{% else %}status-pending{% endif %}"
+        data-testid="task-status"
+      >
+        {% if task.reviewed %}Reviewed{% else %}Pending{% endif %}
+      </span>
+    </div>
+
+    <div style="display: flex; gap: 1.5rem; color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.25rem;">
+      <span>Task ID: <code data-testid="task-id">{{ task.id }}</code></span>
+      <span>Simulated Reward: <strong style="color: var(--primary);" data-testid="task-reward">+{{ task.reward_points }} pts</strong></span>
+    </div>
+  </div>
+
+  <div style="background-color: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 2rem;">
+    <h3 style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem;">
+      Task Instructions
+    </h3>
+    <p data-testid="task-description" style="font-size: 1rem; line-height: 1.6;">
+      {{ task.description }}
+    </p>
+  </div>
+
+  <div style="border-top: 1px solid var(--border); padding-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      {% if task.reviewed %}
+      <span style="color: var(--success); font-size: 0.875rem; font-weight: 500;" data-testid="task-reviewed-note">
+        ✓ This task has been reviewed and verified.
+      </span>
+      {% else %}
+      <span style="color: var(--text-muted); font-size: 0.875rem;">
+        Click below to acknowledge and complete review.
+      </span>
+      {% endif %}
+    </div>
+
+    <form action="/tasks/{{ task.id }}/review" method="post">
+      <button 
+        type="submit" 
+        class="btn btn-primary" 
+        data-testid="mark-reviewed-btn" 
+        aria-label="{{ button_label or 'Mark as reviewed' }}"
+        {% if task.reviewed %}disabled{% endif %}
+      >
+        {{ button_label or "Mark as reviewed" }}
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+    <div>
+      <h1 class="card-title" data-testid="dashboard-header" style="margin-bottom: 0.25rem;">Account Overview</h1>
+      <p style="color: var(--text-muted); font-size: 0.875rem;" data-testid="user-label">
+        Logged in as: <strong>{{ user.display_name }}</strong> (<code>{{ user.username }}</code>)
+      </p>
+    </div>
+    <div style="text-align: right;">
+      <span style="font-size: 0.875rem; color: var(--text-muted); display: block;">Simulated Points</span>
+      <span style="font-size: 1.75rem; font-weight: 700; color: var(--primary);" data-testid="points-balance">
+        {{ user.points }} pts
+      </span>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+    <div style="padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: #f8fafc;">
+      <span style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Tasks Status</span>
+      <p style="font-size: 1.25rem; font-weight: 600; margin-top: 0.25rem;" data-testid="tasks-reviewed-count">
+        {{ reviewed_count }} / {{ total_count }} Reviewed
+      </p>
+    </div>
+
+    <div style="padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: #f8fafc;">
+      <span style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Pending Tasks</span>
+      <p style="font-size: 1.25rem; font-weight: 600; margin-top: 0.25rem;" data-testid="tasks-pending-count">
+        {{ total_count - reviewed_count }} Actionable
+      </p>
+    </div>
+  </div>
+
+  <div>
+    <a href="/tasks" class="btn btn-primary" data-testid="view-tasks-btn" aria-label="Go to Tasks">
+      View Available Tasks &rarr;
+    </a>
+  </div>
+</div>
+{% endblock %}

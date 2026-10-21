@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    name: Lint & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install backend dependencies (locked)
+        working-directory: backend
+        run: uv sync --frozen
+
+      - name: Install Playwright Chromium & dependencies
+        working-directory: backend
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run backend Ruff Lint
+        working-directory: backend
+        run: uv run ruff check .
+
+      - name: Run backend Pytest
+        working-directory: backend
+        run: uv run pytest -v
+
+      - name: Install rewardlab dependencies (locked)
+        working-directory: rewardlab
+        run: uv sync --frozen
+
+      - name: Run rewardlab Ruff Lint
+        working-directory: rewardlab
+        run: uv run ruff check .
+
+      - name: Run rewardlab Pytest
+        working-directory: rewardlab
+        run: uv run pytest -v

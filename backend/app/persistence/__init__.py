@@ -1,0 +1,63 @@
+"""Database persistence models, repositories, and migrations (Milestone M3.1)."""
+
+from app.persistence.database import (
+    Base,
+    async_session_factory,
+    get_async_engine,
+    get_db_session,
+    get_session_factory,
+)
+from app.persistence.models import (
+    VALID_JOB_TRANSITIONS,
+    AccountAuthState,
+    AccountModel,
+    ActivityRecordModel,
+    AuditEventModel,
+    JobModel,
+    JobStatus,
+    JobStepModel,
+    NodeModel,
+    NodeState,
+    ProviderModel,
+    SessionRefModel,
+    StepExecutionStatus,
+    WorkflowApprovalStatus,
+    WorkflowVersionModel,
+)
+from app.persistence.repository import (
+    AccountRepository,
+    AuditEventRepository,
+    JobRepository,
+    ProviderRepository,
+    SessionRefRepository,
+    WorkflowVersionRepository,
+)
+
+__all__ = [
+    "Base",
+    "get_async_engine",
+    "get_session_factory",
+    "async_session_factory",
+    "get_db_session",
+    "JobStatus",
+    "StepExecutionStatus",
+    "AccountAuthState",
+    "NodeState",
+    "WorkflowApprovalStatus",
+    "VALID_JOB_TRANSITIONS",
+    "ProviderModel",
+    "AccountModel",
+    "SessionRefModel",
+    "WorkflowVersionModel",
+    "JobModel",
+    "JobStepModel",
+    "NodeModel",
+    "AuditEventModel",
+    "ActivityRecordModel",
+    "ProviderRepository",
+    "AccountRepository",
+    "SessionRefRepository",
+    "WorkflowVersionRepository",
+    "JobRepository",
+    "AuditEventRepository",
+]

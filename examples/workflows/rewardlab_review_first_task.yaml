@@ -1,0 +1,35 @@
+schema_version: 1
+id: rewardlab_review_first_task
+name: Review First Task on RewardLab
+description: Safe workflow to navigate to tasks, extract description, click review button, and verify completed state.
+provider: rewardlab
+requested_capabilities:
+  - read_tasks
+  - mark_reviewed
+execution:
+  timeout_seconds: 30
+  max_retries: 1
+  step_timeout_seconds: 15
+steps:
+  - id: open_tasks
+    action: navigate
+    path: /tasks/task_01
+  - id: read_task
+    action: extract_text
+    target:
+      by: test_id
+      value: task-description
+    output: task_desc
+  - id: mark_reviewed
+    action: click
+    target:
+      by: role
+      role: button
+      name: Mark as reviewed
+    side_effect: true
+  - id: verify_completed
+    action: verify_state
+    source: rewardlab_api
+    task_id: task_01
+    field: reviewed
+    equals: true
