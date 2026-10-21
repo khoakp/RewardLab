@@ -187,6 +187,7 @@ class PressKeyStep(StepBase):
     action: Literal["press_key"] = "press_key"
     key: str = Field(..., min_length=1, max_length=64)
     target: LocatorTarget | None = None
+    side_effect: bool = False
 
 
 class WaitForStateStep(StepBase):

@@ -760,14 +760,20 @@ class BenchmarkHarness:
                 "chromium_avg_cpu_pct": round(compute_mean(sampler.chromium_cpu_samples), 2),
                 "total_avg_cpu_pct": round(compute_mean(sampler.total_cpu_samples), 2),
             },
+            # Calculate observed duplicate executions from per_job_records
+            succeeded_accounts = [
+                j["account_id"] for j in per_job_records if j.get("status") == "SUCCEEDED"
+            ]
+            observed_duplicates = len(succeeded_accounts) - len(set(succeeded_accounts))
+
             "invariants": {
                 "account_lock_conflicts": worker.metrics.get("lock_conflicts", 0),
-                "duplicate_executions": 0,
+                "duplicate_executions": observed_duplicates,
                 "orphaned_account_locks": orphaned_count,
                 "job_loss_count": max(0, len(account_ids) - worker.stats.get("succeeded", 0)),
                 "browser_crashes": worker.metrics.get("browser_crashes", 0),
-                "sqlite_lock_errors": 0,
-                "cross_account_leakage": 0,
+                "sqlite_lock_errors": "NOT_MEASURED",
+                "cross_account_leakage": "NOT_MEASURED",
             },
         }
 
@@ -944,12 +950,8 @@ class BenchmarkHarness:
                     "browser_crashes": sum(
                         r.get("invariants", {}).get("browser_crashes", 0) for r in runs
                     ),
-                    "sqlite_lock_errors": sum(
-                        r.get("invariants", {}).get("sqlite_lock_errors", 0) for r in runs
-                    ),
-                    "cross_account_leakage": sum(
-                        r.get("invariants", {}).get("cross_account_leakage", 0) for r in runs
-                    ),
+                    "sqlite_lock_errors": "NOT_MEASURED",
+                    "cross_account_leakage": "NOT_MEASURED",
                 },
             }
 

@@ -1,0 +1,41 @@
+{
+  "execution_id": "951e891d",
+  "workflow_id": "draft_workflow",
+  "workflow_schema_version": 1,
+  "provider": "rewardlab",
+  "account_id": "acc_disabled",
+  "task_id": null,
+  "status": "FAILED",
+  "error_code": "ELEMENT_DISABLED",
+  "error_message": "Element target 'by='test_id' value='disabled-action-btn'' is disabled and cannot be clicked",
+  "duration_seconds": 0.203,
+  "requires_verification": true,
+  "can_retry": false,
+  "started_at": "2026-10-21T13:06:05.753824+00:00",
+  "completed_at": "2026-10-21T13:06:05.953873+00:00",
+  "current_url": "http://127.0.0.1:63228/ui-fixtures",
+  "page_title": "UI Interaction Fixtures — Synthetic Automation Testbed",
+  "failed_step": {
+    "step_id": "s2",
+    "action": "click",
+    "status": "FAILED",
+    "duration_ms": 63.0,
+    "error_code": "ELEMENT_DISABLED",
+    "error_message": "Element target 'by='test_id' value='disabled-action-btn'' is disabled and cannot be clicked"
+  },
+  "completed_steps": [
+    {
+      "step_id": "s1",
+      "action": "navigate",
+      "status": "SUCCESS",
+      "duration_ms": 31.0
+    }
+  ],
+  "trace_policy": {
+    "native_trace_enabled": false,
+    "screenshot_captured": true,
+    "screenshot_suppressed_reason": null,
+    "trace_suppressed_reason": "Native trace disabled by default (least-privilege policy)."
+  },
+  "outputs": {}
+}

@@ -101,6 +101,10 @@ def is_workflow_mutating(definition_json: dict[str, Any] | None) -> bool:
         action = str(step.get("action", "")).strip().lower()
         if action in ("click", "fill", "submit", "press"):
             return True
+        if action == "press_key":
+            key = str(step.get("key", "")).strip().lower()
+            if key in ("enter", "numpadenter", "return") or step.get("side_effect") is True:
+                return True
 
     return False
 

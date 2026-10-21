@@ -67,6 +67,24 @@ SUPPORTED_ACTIONS = {
 }
 
 
+KEYBOARD_SUBMISSION_KEYS = {"enter", "numpadenter", "return"}
+
+
+def _is_step_mutating(step: WorkflowStep) -> bool:
+    """Evaluates whether an action step causes persistent or side-effect mutations."""
+    if getattr(step, "side_effect", False) is True:
+        return True
+    if step.action == "click":
+        return True
+    if step.action == "fill":
+        return True
+    if step.action == "press_key":
+        key = getattr(step, "key", "").strip().lower()
+        if key in KEYBOARD_SUBMISSION_KEYS:
+            return True
+    return False
+
+
 class ExecutionContext:
     """Carries runtime state, outputs, and parameters during workflow execution."""
 
@@ -228,10 +246,12 @@ class WorkflowInterpreter:
         if page.context:
             page.context.on("page", _popup_guard)
 
-        had_mutating_side_effect = False
-        verified_postcondition = False
+        total_mutations_executed = 0
+        unverified_mutations: list[str] = []
+        had_verified_postcondition = False
         provider_rejected = False
         human_action_required = False
+        mutating_step_attempted = False
 
         try:
             for idx, step in enumerate(workflow.steps):
@@ -288,21 +308,37 @@ class WorkflowInterpreter:
                 step_results.append(step_res)
 
                 # Track verified outcome components
-                if step.action == "request_human_action" or step_res.error_code in (
+                if step.action == "request_human_action":
+                    human_action_required = True
+                    overall_status = WorkflowExecutionStatus.FAILED
+                    overall_error_code = "HUMAN_ACTION_REQUIRED"
+                    prompt_txt = getattr(step, "prompt", "operator intervention required")
+                    overall_error_message = (
+                        f"Workflow execution paused: human action required: {prompt_txt}"
+                    )
+                    # Fail-fast: skip all remaining steps immediately without dispatching
+                    self._skip_remaining_steps(workflow.steps[idx + 1 :], step_results)
+                    break
+
+                if step_res.error_code in (
                     "SECURITY_CHALLENGE_REQUIRED",
                     "HUMAN_ACTION_REQUIRED",
                 ):
                     human_action_required = True
 
-                is_mutation = getattr(step, "side_effect", False) or step.action in (
-                    "click",
-                    "fill",
-                )
+                is_mutation = _is_step_mutating(step)
+                if is_mutation:
+                    mutating_step_attempted = True
                 if is_mutation and step_res.status == StepStatus.SUCCESS:
-                    had_mutating_side_effect = True
+                    total_mutations_executed += 1
+                    # A new mutation invalidates prior verifications for this new mutation
+                    unverified_mutations.append(step.id)
 
                 if step.action == "verify_state" and step_res.status == StepStatus.SUCCESS:
-                    verified_postcondition = True
+                    had_verified_postcondition = True
+                    if unverified_mutations:
+                        # Causally verifies the earliest unverified mutation
+                        unverified_mutations.pop(0)
 
                 if step_res.error_code in (
                     "POLICY_DENIED",
@@ -350,7 +386,13 @@ class WorkflowInterpreter:
 
         # Classify business outcome:
         # Browser action success does NOT equate to business outcome success.
-        if provider_rejected or overall_error_code in (
+        if human_action_required or overall_error_code in (
+            "SECURITY_CHALLENGE_REQUIRED",
+            "HUMAN_ACTION_REQUIRED",
+        ):
+            outcome_type = WorkflowOutcomeType.HUMAN_ACTION_REQUIRED
+            requires_verification = True
+        elif provider_rejected or overall_error_code in (
             "POLICY_DENIED",
             "HTTP_401_UNAUTHORIZED",
             "HTTP_403_FORBIDDEN",
@@ -359,18 +401,13 @@ class WorkflowInterpreter:
         ):
             outcome_type = WorkflowOutcomeType.PROVIDER_REJECTED
             requires_verification = False
-        elif human_action_required or overall_error_code in (
-            "SECURITY_CHALLENGE_REQUIRED",
-            "HUMAN_ACTION_REQUIRED",
-        ):
-            outcome_type = WorkflowOutcomeType.HUMAN_ACTION_REQUIRED
-            requires_verification = True
-        elif had_mutating_side_effect:
-            if overall_status == WorkflowExecutionStatus.SUCCESS and verified_postcondition:
+        elif total_mutations_executed > 0 or mutating_step_attempted:
+            if overall_status == WorkflowExecutionStatus.SUCCESS and len(unverified_mutations) == 0:
                 outcome_type = WorkflowOutcomeType.STATE_VERIFIED
                 requires_verification = False
             else:
-                # Mutating side effect occurred but postcondition unconfirmed or execution failed
+                # Mutating side effect occurred or was attempted, but postcondition unconfirmed,
+                # remaining unverified mutations exist, or execution failed (e.g. lost response)
                 outcome_type = WorkflowOutcomeType.OUTCOME_UNCONFIRMED
                 requires_verification = True
         else:
@@ -378,7 +415,7 @@ class WorkflowInterpreter:
             if overall_status == WorkflowExecutionStatus.SUCCESS:
                 outcome_type = (
                     WorkflowOutcomeType.STATE_VERIFIED
-                    if verified_postcondition
+                    if had_verified_postcondition
                     else WorkflowOutcomeType.ACTION_EXECUTED
                 )
                 requires_verification = False
@@ -476,12 +513,17 @@ class WorkflowInterpreter:
             )
             elapsed_ms = round((time.monotonic() - t0) * 1000, 2)
             logger.info("Step '%s' completed successfully in %.1fms", step_id, elapsed_ms)
+            step_outcome: WorkflowOutcomeType | None = None
+            if action == "request_human_action":
+                step_outcome = WorkflowOutcomeType.HUMAN_ACTION_REQUIRED
+
             return StepExecutionResult(
                 step_id=step_id,
                 action=action,
                 status=StepStatus.SUCCESS,
                 duration_ms=elapsed_ms,
                 output_data=redact_data(output_data) if output_data else None,
+                outcome_type=step_outcome,
             )
 
         except PlaywrightTimeoutError:
@@ -644,11 +686,55 @@ class WorkflowInterpreter:
                         details={"target": str(step.target)},
                     )
                 initial_url = page.url
-                await loc.click(
-                    button=step.button,
-                    click_count=step.click_count,
-                    timeout=timeout_ms,
-                )
+
+                last_network_response: list[Any] = []
+
+                def _capture_resp(resp: Any) -> None:
+                    if resp.status >= 400 and getattr(resp.request, "resource_type", "") in (
+                        "document",
+                        "fetch",
+                        "xhr",
+                    ):
+                        last_network_response.append(resp)
+
+                page.on("response", _capture_resp)
+                try:
+                    await loc.click(
+                        button=step.button,
+                        click_count=step.click_count,
+                        timeout=timeout_ms,
+                    )
+                    await asyncio.sleep(0.05)
+                finally:
+                    with contextlib.suppress(Exception):
+                        page.remove_listener("response", _capture_resp)
+
+                if last_network_response:
+                    bad_resp = last_network_response[-1]
+                    if bad_resp.status == 504:
+                        raise StepVerificationError(
+                            message=(
+                                f"Click received HTTP 504 Gateway Timeout from "
+                                f"{redact_url_credentials(bad_resp.url)}"
+                            ),
+                            code="HTTP_504_GATEWAY_TIMEOUT",
+                            step_id=step.id,
+                            details={"status_code": 504, "error_code": "HTTP_504_GATEWAY_TIMEOUT"},
+                        )
+                    elif bad_resp.status >= 500:
+                        raise StepVerificationError(
+                            message=(
+                                f"Click received HTTP {bad_resp.status} Server Error from "
+                                f"{redact_url_credentials(bad_resp.url)}"
+                            ),
+                            code=f"HTTP_{bad_resp.status}_SERVER_ERROR",
+                            step_id=step.id,
+                            details={
+                                "status_code": bad_resp.status,
+                                "error_code": f"HTTP_{bad_resp.status}_SERVER_ERROR",
+                            },
+                        )
+
                 # Verify destination URL if click caused navigation or redirect
                 current_url = page.url
                 if current_url != initial_url:
@@ -790,7 +876,7 @@ class WorkflowInterpreter:
             await loc.press(step.key, timeout=timeout_ms)
         else:
             await page.keyboard.press(step.key)
-        return {"pressed_key": step.key}
+        return {"pressed_key": step.key, "side_effect": step.side_effect}
 
     async def _handle_wait_for_state(
         self,
@@ -906,6 +992,29 @@ class WorkflowInterpreter:
                     "status_code": 429,
                     "retry_after": retry_after,
                     "error_code": "HTTP_429_RATE_LIMITED",
+                },
+            )
+        elif status_code == 504:
+            raise StepVerificationError(
+                message=(
+                    f"Navigation received HTTP 504 Gateway Timeout from "
+                    f"{redact_url_credentials(current_url)}"
+                ),
+                code="HTTP_504_GATEWAY_TIMEOUT",
+                step_id=step.id,
+                details={"status_code": 504, "error_code": "HTTP_504_GATEWAY_TIMEOUT"},
+            )
+        elif status_code >= 500:
+            raise StepVerificationError(
+                message=(
+                    f"Navigation received HTTP {status_code} Server Error from "
+                    f"{redact_url_credentials(current_url)}"
+                ),
+                code=f"HTTP_{status_code}_SERVER_ERROR",
+                step_id=step.id,
+                details={
+                    "status_code": status_code,
+                    "error_code": f"HTTP_{status_code}_SERVER_ERROR",
                 },
             )
 

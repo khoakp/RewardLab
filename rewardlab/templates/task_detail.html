@@ -55,7 +55,7 @@
       {% endif %}
     </div>
 
-    <form action="/tasks/{{ task.id }}/review" method="post">
+    <form action="/tasks/{{ task.id }}/review{% if simulate_lost_response %}?simulate_lost_response=true{% endif %}" method="post">
       <button 
         type="submit" 
         class="btn btn-primary" 

@@ -465,9 +465,10 @@ async def test_p1_human_action_required_step(
         account_id="acc_security",
         policy_evaluator=policy_evaluator,
     )
-    assert res.status == WorkflowExecutionStatus.SUCCESS
+    assert res.status == WorkflowExecutionStatus.FAILED
     assert res.outcome_type == WorkflowOutcomeType.HUMAN_ACTION_REQUIRED
     assert res.requires_verification is True
+    assert res.error_code == "HUMAN_ACTION_REQUIRED"
 
 
 @pytest.mark.asyncio

@@ -46,6 +46,7 @@ from app.workflows.parser import parse_workflow_content
 from app.workflows.results import (
     WorkflowExecutionResult,
     WorkflowExecutionStatus,
+    WorkflowOutcomeType,
 )
 from app.workflows.schema import WorkflowDefinition
 from app.workflows.validator import validate_workflow_definition
@@ -371,6 +372,7 @@ def render_human_result(
         [
             "----------------------------------------",
             f"Overall Status       : {result.status}",
+            f"Outcome Type         : {result.outcome_type}",
             f"Duration             : {result.duration_seconds:.3f}s",
             f"Steps Executed       : {result.steps_executed}/{result.total_steps}",
             f"Requires Verification: {result.requires_verification}",
@@ -641,7 +643,18 @@ async def execute_cli_async(
     exit_code: ExitCode
     match result.status:
         case WorkflowExecutionStatus.SUCCESS:
-            exit_code = ExitCode.SUCCESS
+            if (
+                result.outcome_type
+                in (
+                    WorkflowOutcomeType.HUMAN_ACTION_REQUIRED,
+                    WorkflowOutcomeType.OUTCOME_UNCONFIRMED,
+                    WorkflowOutcomeType.PROVIDER_REJECTED,
+                )
+                or result.requires_verification
+            ):
+                exit_code = ExitCode.FAILED
+            else:
+                exit_code = ExitCode.SUCCESS
         case WorkflowExecutionStatus.POLICY_DENIED:
             exit_code = ExitCode.POLICY_DENIED
         case WorkflowExecutionStatus.TIMEOUT:

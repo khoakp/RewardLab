@@ -1,0 +1,34 @@
+{
+  "execution_id": "82b39c9a",
+  "workflow_id": "mutate_wf",
+  "workflow_schema_version": 1,
+  "provider": "rewardlab",
+  "account_id": "test_01",
+  "task_id": null,
+  "status": "TIMEOUT",
+  "error_code": "STEP_TIMEOUT",
+  "error_message": "Step 's_click' timed out after 1.0s",
+  "duration_seconds": 1.125,
+  "requires_verification": true,
+  "can_retry": false,
+  "started_at": "2026-10-21T13:06:22.478000+00:00",
+  "completed_at": "2026-10-21T13:06:23.602041+00:00",
+  "current_url": "about:blank",
+  "page_title": "",
+  "failed_step": {
+    "step_id": "s_click",
+    "action": "click",
+    "status": "TIMEOUT",
+    "duration_ms": 1016.0,
+    "error_code": "STEP_TIMEOUT",
+    "error_message": "Step 's_click' timed out after 1.0s"
+  },
+  "completed_steps": [],
+  "trace_policy": {
+    "native_trace_enabled": false,
+    "screenshot_captured": true,
+    "screenshot_suppressed_reason": null,
+    "trace_suppressed_reason": "Native trace disabled by default (least-privilege policy)."
+  },
+  "outputs": {}
+}

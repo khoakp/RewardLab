@@ -438,6 +438,7 @@ async def task_detail_page(request: Request, task_id: str) -> Response:
 
     button_label = get_button_label(request)
 
+    simulate_lost = request.query_params.get("simulate_lost_response") == "true"
     return templates.TemplateResponse(
         request=request,
         name="task_detail.html",
@@ -446,8 +447,32 @@ async def task_detail_page(request: Request, task_id: str) -> Response:
             "task": task,
             "success_msg": None,
             "button_label": button_label,
+            "simulate_lost_response": simulate_lost,
         },
     )
+
+
+@app.get("/tasks/{task_id}/review", response_class=HTMLResponse)
+async def mark_task_reviewed_get(request: Request, task_id: str) -> Response:
+    """GET review handler to simulate lost responses or direct navigation."""
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+
+    store.mark_task_reviewed(user.username, task_id)
+    if (
+        request.headers.get("x-test-fault-lost-response") == "true"
+        or request.query_params.get("simulate_lost_response") == "true"
+    ):
+        content = (
+            "<!DOCTYPE html><html><body><h1>504 Gateway Timeout</h1>"
+            "<p>Response lost</p></body></html>"
+        )
+        return HTMLResponse(
+            content=content,
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+        )
+    return RedirectResponse(url=f"/tasks/{task_id}", status_code=status.HTTP_302_FOUND)
 
 
 @app.post("/tasks/{task_id}/review", response_class=HTMLResponse)
@@ -466,7 +491,10 @@ async def mark_task_reviewed(request: Request, task_id: str) -> Response:
         )
 
     # Check for simulated lost response after successful mutation
-    if request.headers.get("x-test-fault-lost-response") == "true":
+    if (
+        request.headers.get("x-test-fault-lost-response") == "true"
+        or request.query_params.get("simulate_lost_response") == "true"
+    ):
         content = (
             "<!DOCTYPE html><html><body><h1>504 Gateway Timeout</h1>"
             "<p>Response lost</p></body></html>"

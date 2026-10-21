@@ -1,0 +1,40 @@
+{
+  "execution_id": "b5c21aca",
+  "workflow_id": "draft_workflow",
+  "workflow_schema_version": 1,
+  "provider": "rewardlab",
+  "account_id": "acc_security",
+  "task_id": null,
+  "status": "FAILED",
+  "error_code": "HUMAN_ACTION_REQUIRED",
+  "error_message": "Workflow execution paused: human action required: Encountered security challenge requiring operator verification",
+  "duration_seconds": 0.188,
+  "requires_verification": true,
+  "can_retry": false,
+  "started_at": "2026-10-21T13:01:58.863220+00:00",
+  "completed_at": "2026-10-21T13:01:59.047288+00:00",
+  "current_url": "http://127.0.0.1:53717/security-challenge",
+  "page_title": "Security Challenge Required — Synthetic Automation Testbed",
+  "failed_step": null,
+  "completed_steps": [
+    {
+      "step_id": "s1",
+      "action": "navigate",
+      "status": "SUCCESS",
+      "duration_ms": 32.0
+    },
+    {
+      "step_id": "s2",
+      "action": "request_human_action",
+      "status": "SUCCESS",
+      "duration_ms": 0.0
+    }
+  ],
+  "trace_policy": {
+    "native_trace_enabled": false,
+    "screenshot_captured": true,
+    "screenshot_suppressed_reason": null,
+    "trace_suppressed_reason": "Native trace disabled by default (least-privilege policy)."
+  },
+  "outputs": {}
+}

@@ -54,17 +54,19 @@ We introduced 4 new workflow action models to `app/workflows/schema.py` and 1 lo
 class HoverStep(StepBase):
     action: Literal["hover"] = "hover"
     target: LocatorTarget
+    force: bool = False
 
 class ScrollStep(StepBase):
     action: Literal["scroll"] = "scroll"
     target: LocatorTarget | None = None
-    delta_x: float = 0.0
-    delta_y: float = 0.0
+    direction: Literal["up", "down", "left", "right"] | None = "down"
+    amount: int = Field(default=300, ge=1, le=10000)
 
 class PressKeyStep(StepBase):
     action: Literal["press_key"] = "press_key"
-    key: str
+    key: str = Field(..., min_length=1, max_length=64)
     target: LocatorTarget | None = None
+    side_effect: bool = False
 
 class WaitForStateStep(StepBase):
     action: Literal["wait_for_state"] = "wait_for_state"
@@ -72,8 +74,9 @@ class WaitForStateStep(StepBase):
     state: Literal["visible", "hidden", "attached", "detached"] = "visible"
 
 class LabelLocator(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     strategy: Literal["label"] = "label"
-    value: str
+    value: str = Field(..., min_length=1, max_length=1024)
 ```
 
 ### 3.2 Interactability & Reliability Guarantees
