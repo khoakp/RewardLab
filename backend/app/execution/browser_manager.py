@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -18,12 +20,14 @@ import httpx
 from playwright.async_api import (
     Browser,
     BrowserContext,
+    Page,
     Playwright,
     async_playwright,
 )
 from playwright.async_api import (
     Error as PlaywrightError,
 )
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.errors import PolicyDeniedException
 from app.core.policy import PolicyEvaluator
@@ -37,11 +41,36 @@ from app.workflows.parser import parse_workflow_content
 from app.workflows.results import (
     WorkflowExecutionResult,
     WorkflowExecutionStatus,
+    WorkflowOutcomeType,
 )
 from app.workflows.schema import WorkflowDefinition
 from app.workflows.validator import validate_workflow_definition
 
 logger = get_logger("adbap.execution.browser_manager")
+
+
+class ViewportConfig(BaseModel):
+    """Explicit viewport configuration model."""
+
+    model_config = ConfigDict(extra="forbid")
+    width: int = Field(..., ge=240, le=7680)
+    height: int = Field(..., ge=240, le=4320)
+
+
+class BrowserContextConfig(BaseModel):
+    """Typed browser context profile configuration (Milestone P1).
+
+    Enables testing desktop and mobile responsive layouts, locales, device scale factors,
+    and timezones through official Playwright context APIs.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    viewport: ViewportConfig | None = None
+    is_mobile: bool = False
+    device_scale_factor: float = Field(default=1.0, ge=0.5, le=4.0)
+    has_touch: bool = False
+    locale: str = Field(default="en-US", min_length=2, max_length=32)
+    timezone_id: str = Field(default="UTC", min_length=1, max_length=64)
 
 
 class BrowserManager:
@@ -54,11 +83,25 @@ class BrowserManager:
         diagnostic_manager: DiagnosticManager | None = None,
     ) -> None:
         self.headless = headless
-        self.launch_args = launch_args or [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-        ]
+        if launch_args is not None:
+            self.launch_args = launch_args
+        else:
+            # Maintain standard Chromium OS sandbox by default on Windows/Linux.
+            # Sandbox is disabled only if explicitly configured via ADBAP_DISABLE_SANDBOX.
+            disable_sandbox = os.environ.get("ADBAP_DISABLE_SANDBOX", "false").lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+            if disable_sandbox:
+                self.launch_args = [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                ]
+            else:
+                self.launch_args = ["--disable-dev-shm-usage"]
+
         self.diagnostic_manager = diagnostic_manager or DiagnosticManager()
 
         self._playwright: Playwright | None = None
@@ -174,12 +217,14 @@ class BrowserManager:
         base_url: str = "http://127.0.0.1:8001",
         ignore_https_errors: bool = False,
         service_workers: str = "block",
+        context_config: BrowserContextConfig | None = None,
         **context_kwargs: Any,
     ) -> BrowserContext:
         """Creates an isolated, short-lived BrowserContext for an account execution.
 
         Never shares cookies, localStorage, or state across accounts.
         Defaults to service_workers='block' to enforce strict network isolation boundaries.
+        Supports typed BrowserContextConfig for responsive viewport and locale testing.
         """
         if not self.is_healthy():
             raise BrowserDisconnectedError(
@@ -190,10 +235,30 @@ class BrowserManager:
 
         assert self._browser is not None  # Guaranteed by is_healthy()
 
+        profile_kwargs: dict[str, Any] = {}
+        if context_config:
+            if context_config.viewport is not None:
+                profile_kwargs["viewport"] = {
+                    "width": context_config.viewport.width,
+                    "height": context_config.viewport.height,
+                }
+            if context_config.is_mobile:
+                profile_kwargs["is_mobile"] = context_config.is_mobile
+            if context_config.device_scale_factor != 1.0:
+                profile_kwargs["device_scale_factor"] = context_config.device_scale_factor
+            if context_config.has_touch:
+                profile_kwargs["has_touch"] = context_config.has_touch
+            if context_config.locale:
+                profile_kwargs["locale"] = context_config.locale
+            if context_config.timezone_id:
+                profile_kwargs["timezone_id"] = context_config.timezone_id
+
+        merged_kwargs = {**profile_kwargs, **context_kwargs}
+
         context = await self._browser.new_context(
             ignore_https_errors=ignore_https_errors,
             service_workers=service_workers,
-            **context_kwargs,
+            **merged_kwargs,
         )
 
         # Inject synthetic session cookie if provided
@@ -236,6 +301,7 @@ class BrowserManager:
         session_id: str | None = None,
         base_url: str = "http://127.0.0.1:8001",
         ignore_https_errors: bool = False,
+        context_config: BrowserContextConfig | None = None,
         **context_kwargs: Any,
     ):
         """Async context manager guaranteeing context creation and cleanup in `finally`."""
@@ -244,12 +310,28 @@ class BrowserManager:
             session_id=session_id,
             base_url=base_url,
             ignore_https_errors=ignore_https_errors,
+            context_config=context_config,
             **context_kwargs,
         )
         try:
             yield ctx
         finally:
             await self.close_context(ctx)
+
+    @staticmethod
+    async def get_browser_diagnostics(page: Page) -> dict[str, Any]:
+        """Reads official browser context environment attributes for diagnostics and testing."""
+        return await page.evaluate(
+            """() => ({
+                viewport_width: window.innerWidth,
+                viewport_height: window.innerHeight,
+                device_pixel_ratio: window.devicePixelRatio,
+                user_agent: navigator.userAgent,
+                language: navigator.language,
+                touch_points: navigator.maxTouchPoints || 0,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            })"""
+        )
 
     async def execute_workflow(
         self,
@@ -263,6 +345,8 @@ class BrowserManager:
         policy_evaluator: PolicyEvaluator | None = None,
         http_client: httpx.AsyncClient | None = None,
         record_trace_on_failure: bool = True,
+        context_config: BrowserContextConfig | None = None,
+        is_aborted_callback: Callable[[], bool] | None = None,
     ) -> WorkflowExecutionResult:
         """Executes a validated workflow within an isolated, short-lived BrowserContext.
 
@@ -297,6 +381,7 @@ class BrowserManager:
                 workflow_id=wf_id,
                 provider=provider_name,
                 status=WorkflowExecutionStatus.POLICY_DENIED,
+                outcome_type=WorkflowOutcomeType.PROVIDER_REJECTED,
                 steps_executed=0,
                 total_steps=step_count,
                 step_results=[],
@@ -317,6 +402,7 @@ class BrowserManager:
                 workflow_id=wf_def.id,
                 provider=wf_def.provider,
                 status=WorkflowExecutionStatus.FAILED,
+                outcome_type=WorkflowOutcomeType.OUTCOME_UNCONFIRMED,
                 steps_executed=0,
                 total_steps=len(wf_def.steps),
                 step_results=[],
@@ -343,6 +429,7 @@ class BrowserManager:
             session_id=session_id,
             base_url=base_url,
             service_workers=sw_setting,
+            context_config=context_config,
         )
 
         page = None
@@ -363,6 +450,7 @@ class BrowserManager:
                 account_id=account_id,
                 task_id=task_id,
                 initial_outputs=initial_outputs,
+                is_aborted_callback=is_aborted_callback,
             )
 
             if context_timeout_seconds is not None and context_timeout_seconds > 0:
@@ -381,6 +469,7 @@ class BrowserManager:
                         workflow_id=wf_def.id,
                         provider=wf_def.provider,
                         status=WorkflowExecutionStatus.TIMEOUT,
+                        outcome_type=WorkflowOutcomeType.OUTCOME_UNCONFIRMED,
                         steps_executed=0,
                         total_steps=len(wf_def.steps),
                         step_results=[],
@@ -430,6 +519,7 @@ class BrowserManager:
                 workflow_id=wf_def.id,
                 provider=wf_def.provider,
                 status=WorkflowExecutionStatus.CANCELLED,
+                outcome_type=WorkflowOutcomeType.OUTCOME_UNCONFIRMED,
                 steps_executed=0,
                 total_steps=len(wf_def.steps),
                 step_results=[],
@@ -471,6 +561,7 @@ class BrowserManager:
                 workflow_id=wf_def.id,
                 provider=wf_def.provider,
                 status=WorkflowExecutionStatus.FAILED,
+                outcome_type=WorkflowOutcomeType.OUTCOME_UNCONFIRMED,
                 steps_executed=0,
                 total_steps=len(wf_def.steps),
                 step_results=[],
@@ -502,3 +593,7 @@ class BrowserManager:
                 account_id,
                 len(self._active_contexts),
             )
+
+
+get_browser_diagnostics = BrowserManager.get_browser_diagnostics
+

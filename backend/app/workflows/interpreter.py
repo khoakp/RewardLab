@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,6 +14,7 @@ from app.core.policy import PolicyEvaluator
 from app.observability.logging import get_logger, redact_data, redact_url_credentials
 from app.workflows.errors import (
     ActionTimeoutError,
+    ElementDisabledError,
     RuntimePolicyViolationError,
     StepAssertionError,
     StepVerificationError,
@@ -25,14 +27,21 @@ from app.workflows.results import (
     StepStatus,
     WorkflowExecutionResult,
     WorkflowExecutionStatus,
+    WorkflowOutcomeType,
 )
 from app.workflows.schema import (
     AssertVisibleStep,
     ClickStep,
     ExtractTextStep,
     FillStep,
+    HoverStep,
     NavigateStep,
+    NotifyUserStep,
+    PressKeyStep,
+    RequestHumanActionStep,
+    ScrollStep,
     VerifyStateStep,
+    WaitForStateStep,
     WaitVisibleStep,
     WorkflowDefinition,
     WorkflowStep,
@@ -40,15 +49,21 @@ from app.workflows.schema import (
 
 logger = get_logger("adbap.workflows.interpreter")
 
-# Supported action types in Milestone M2.2
+# Supported action types in Milestone P1
 SUPPORTED_ACTIONS = {
     "navigate",
     "wait_visible",
     "extract_text",
     "click",
     "fill",
+    "hover",
+    "scroll",
+    "press_key",
+    "wait_for_state",
     "assert_visible",
     "verify_state",
+    "notify_user",
+    "request_human_action",
 }
 
 
@@ -91,6 +106,7 @@ class WorkflowInterpreter:
         account_id: str = "test_01",
         task_id: str | None = None,
         initial_outputs: dict[str, Any] | None = None,
+        is_aborted_callback: Callable[[], bool] | None = None,
     ) -> WorkflowExecutionResult:
         """Executes a validated WorkflowDefinition against a Playwright Page."""
         start_time = datetime.now(UTC)
@@ -122,6 +138,7 @@ class WorkflowInterpreter:
                 workflow_id=workflow.id,
                 provider=workflow.provider,
                 status=WorkflowExecutionStatus.POLICY_DENIED,
+                outcome_type=WorkflowOutcomeType.PROVIDER_REJECTED,
                 steps_executed=0,
                 total_steps=len(workflow.steps),
                 step_results=[],
@@ -147,6 +164,7 @@ class WorkflowInterpreter:
                     workflow_id=workflow.id,
                     provider=workflow.provider,
                     status=WorkflowExecutionStatus.POLICY_DENIED,
+                    outcome_type=WorkflowOutcomeType.PROVIDER_REJECTED,
                     steps_executed=0,
                     total_steps=len(workflow.steps),
                     step_results=[],
@@ -210,8 +228,27 @@ class WorkflowInterpreter:
         if page.context:
             page.context.on("page", _popup_guard)
 
+        had_mutating_side_effect = False
+        verified_postcondition = False
+        provider_rejected = False
+        human_action_required = False
+
         try:
             for idx, step in enumerate(workflow.steps):
+                # Check external abort or lease fencing signal prior to dispatching next step
+                if is_aborted_callback and is_aborted_callback():
+                    logger.warning(
+                        "Execution aborted before step '%s': lease lost or cancelled",
+                        step.id,
+                    )
+                    overall_status = WorkflowExecutionStatus.CANCELLED
+                    overall_error_code = "LEASE_LOST_OR_CANCELLED"
+                    overall_error_message = (
+                        "Execution aborted: active lease was lost or job was cancelled"
+                    )
+                    self._skip_remaining_steps(workflow.steps[idx:], step_results)
+                    break
+
                 elapsed = time.monotonic() - mono_start
                 remaining = total_timeout - elapsed
 
@@ -230,6 +267,7 @@ class WorkflowInterpreter:
                             duration_ms=0.0,
                             error_code="WORKFLOW_TIMEOUT",
                             error_message=overall_error_message,
+                            outcome_type=WorkflowOutcomeType.OUTCOME_UNCONFIRMED,
                         )
                     )
                     self._skip_remaining_steps(workflow.steps[idx + 1 :], step_results)
@@ -248,6 +286,32 @@ class WorkflowInterpreter:
                     provider=workflow.provider,
                 )
                 step_results.append(step_res)
+
+                # Track verified outcome components
+                if step.action == "request_human_action" or step_res.error_code in (
+                    "SECURITY_CHALLENGE_REQUIRED",
+                    "HUMAN_ACTION_REQUIRED",
+                ):
+                    human_action_required = True
+
+                is_mutation = getattr(step, "side_effect", False) or step.action in (
+                    "click",
+                    "fill",
+                )
+                if is_mutation and step_res.status == StepStatus.SUCCESS:
+                    had_mutating_side_effect = True
+
+                if step.action == "verify_state" and step_res.status == StepStatus.SUCCESS:
+                    verified_postcondition = True
+
+                if step_res.error_code in (
+                    "POLICY_DENIED",
+                    "HTTP_401_UNAUTHORIZED",
+                    "HTTP_403_FORBIDDEN",
+                    "HTTP_429_RATE_LIMITED",
+                    "PROVIDER_REJECTED",
+                ):
+                    provider_rejected = True
 
                 if step_res.status != StepStatus.SUCCESS:
                     overall_status = (
@@ -284,31 +348,49 @@ class WorkflowInterpreter:
             if s.status in (StepStatus.SUCCESS, StepStatus.FAILED, StepStatus.TIMEOUT)
         )
 
-        # Inspect if any executed step had side effects or was a state mutation
-        had_side_effect = False
-        for s_res in step_results:
-            step_obj = next((st for st in workflow.steps if st.id == s_res.step_id), None)
-            if step_obj:
-                is_mutation = getattr(step_obj, "side_effect", False) or step_obj.action in (
-                    "click",
-                    "fill",
+        # Classify business outcome:
+        # Browser action success does NOT equate to business outcome success.
+        if provider_rejected or overall_error_code in (
+            "POLICY_DENIED",
+            "HTTP_401_UNAUTHORIZED",
+            "HTTP_403_FORBIDDEN",
+            "HTTP_429_RATE_LIMITED",
+            "PROVIDER_REJECTED",
+        ):
+            outcome_type = WorkflowOutcomeType.PROVIDER_REJECTED
+            requires_verification = False
+        elif human_action_required or overall_error_code in (
+            "SECURITY_CHALLENGE_REQUIRED",
+            "HUMAN_ACTION_REQUIRED",
+        ):
+            outcome_type = WorkflowOutcomeType.HUMAN_ACTION_REQUIRED
+            requires_verification = True
+        elif had_mutating_side_effect:
+            if overall_status == WorkflowExecutionStatus.SUCCESS and verified_postcondition:
+                outcome_type = WorkflowOutcomeType.STATE_VERIFIED
+                requires_verification = False
+            else:
+                # Mutating side effect occurred but postcondition unconfirmed or execution failed
+                outcome_type = WorkflowOutcomeType.OUTCOME_UNCONFIRMED
+                requires_verification = True
+        else:
+            # Read-only workflow
+            if overall_status == WorkflowExecutionStatus.SUCCESS:
+                outcome_type = (
+                    WorkflowOutcomeType.STATE_VERIFIED
+                    if verified_postcondition
+                    else WorkflowOutcomeType.ACTION_EXECUTED
                 )
-                if is_mutation and s_res.status in (
-                    StepStatus.SUCCESS,
-                    StepStatus.FAILED,
-                    StepStatus.TIMEOUT,
-                ):
-                    had_side_effect = True
-                    break
-
-        requires_verification = (
-            had_side_effect if overall_status != WorkflowExecutionStatus.SUCCESS else False
-        )
+                requires_verification = False
+            else:
+                outcome_type = WorkflowOutcomeType.OUTCOME_UNCONFIRMED
+                requires_verification = False
 
         return WorkflowExecutionResult(
             workflow_id=workflow.id,
             provider=workflow.provider,
             status=overall_status,
+            outcome_type=outcome_type,
             steps_executed=executed_count,
             total_steps=len(workflow.steps),
             step_results=step_results,
@@ -439,6 +521,18 @@ class WorkflowInterpreter:
 
         except WorkflowExecutionError as e:
             elapsed_ms = round((time.monotonic() - t0) * 1000, 2)
+            step_outcome: WorkflowOutcomeType | None = None
+            if e.code in (
+                "POLICY_DENIED",
+                "HTTP_401_UNAUTHORIZED",
+                "HTTP_403_FORBIDDEN",
+                "HTTP_429_RATE_LIMITED",
+                "PROVIDER_REJECTED",
+            ):
+                step_outcome = WorkflowOutcomeType.PROVIDER_REJECTED
+            elif e.code in ("SECURITY_CHALLENGE_REQUIRED", "HUMAN_ACTION_REQUIRED"):
+                step_outcome = WorkflowOutcomeType.HUMAN_ACTION_REQUIRED
+
             return StepExecutionResult(
                 step_id=step_id,
                 action=action,
@@ -446,13 +540,15 @@ class WorkflowInterpreter:
                 duration_ms=elapsed_ms,
                 error_code=e.code,
                 error_message=e.message,
+                outcome_type=step_outcome,
             )
 
         except PlaywrightError as e:
             elapsed_ms = round((time.monotonic() - t0) * 1000, 2)
             sanitized_msg = redact_url_credentials(str(e))
             lower_msg = sanitized_msg.lower()
-            # Distinguish element not found/visible, timeout, or browser disconnect
+            # Distinguish element not found/visible, timeout, detached,
+            # disabled, modal blocking, or browser disconnect
             code = "ACTION_EXECUTION_FAILED"
             if "timeout" in lower_msg or "timed out" in lower_msg:
                 status = StepStatus.TIMEOUT
@@ -469,6 +565,15 @@ class WorkflowInterpreter:
             ):
                 status = StepStatus.FAILED
                 code = "BROWSER_DISCONNECTED"
+            elif "detached" in lower_msg or "not attached" in lower_msg:
+                status = StepStatus.FAILED
+                code = "ELEMENT_DETACHED"
+            elif "intercepts pointer events" in lower_msg or "is not clickable" in lower_msg:
+                status = StepStatus.FAILED
+                code = "MODAL_BLOCKING"
+            elif "disabled" in lower_msg:
+                status = StepStatus.FAILED
+                code = "ELEMENT_DISABLED"
             elif "not visible" in lower_msg:
                 status = StepStatus.FAILED
                 code = "ELEMENT_NOT_VISIBLE"
@@ -532,6 +637,12 @@ class WorkflowInterpreter:
             case ClickStep():
                 loc = resolve_locator(page, step.target).first
                 await loc.wait_for(state="visible", timeout=timeout_ms)
+                if await loc.is_disabled():
+                    raise ElementDisabledError(
+                        message=f"Element target '{step.target}' is disabled and cannot be clicked",
+                        step_id=step.id,
+                        details={"target": str(step.target)},
+                    )
                 initial_url = page.url
                 await loc.click(
                     button=step.button,
@@ -562,12 +673,29 @@ class WorkflowInterpreter:
             case FillStep():
                 loc = resolve_locator(page, step.target).first
                 await loc.wait_for(state="visible", timeout=timeout_ms)
+                if await loc.is_disabled():
+                    raise ElementDisabledError(
+                        message=f"Element target '{step.target}' is disabled and cannot be filled",
+                        step_id=step.id,
+                        details={"target": str(step.target)},
+                    )
                 if step.clear_before:
                     await loc.fill(step.value, timeout=timeout_ms)
                 else:
                     await loc.type(step.value, timeout=timeout_ms)
-                # Redact sensitive input values from output record
                 return {"filled": True, "length": len(step.value)}
+
+            case HoverStep():
+                return await self._handle_hover(step, page, context, timeout_ms)
+
+            case ScrollStep():
+                return await self._handle_scroll(step, page, context, timeout_ms)
+
+            case PressKeyStep():
+                return await self._handle_press_key(step, page, context, timeout_ms)
+
+            case WaitForStateStep():
+                return await self._handle_wait_for_state(step, page, context, timeout_ms)
 
             case AssertVisibleStep():
                 loc = resolve_locator(page, step.target).first
@@ -587,8 +715,116 @@ class WorkflowInterpreter:
             case VerifyStateStep():
                 return await self._handle_verify_state(step, page, context, timeout_ms)
 
+            case NotifyUserStep():
+                return await self._handle_notify_user(step, page, context, timeout_ms)
+
+            case RequestHumanActionStep():
+                return await self._handle_request_human_action(step, page, context, timeout_ms)
+
             case _:
                 raise UnsupportedActionError(action=step.action, step_id=step.id)
+
+    async def _handle_hover(
+        self,
+        step: HoverStep,
+        page: Page,
+        context: ExecutionContext,
+        timeout_ms: int,
+    ) -> dict[str, Any]:
+        """Handles hovering over an interactive element."""
+        loc = resolve_locator(page, step.target).first
+        await loc.wait_for(state="visible", timeout=timeout_ms)
+        if await loc.is_disabled():
+            raise ElementDisabledError(
+                message=f"Element target '{step.target}' is disabled and cannot be hovered",
+                step_id=step.id,
+                details={"target": str(step.target)},
+            )
+        await loc.hover(force=step.force, timeout=timeout_ms)
+        return {"hovered": True}
+
+    async def _handle_scroll(
+        self,
+        step: ScrollStep,
+        page: Page,
+        context: ExecutionContext,
+        timeout_ms: int,
+    ) -> dict[str, Any]:
+        """Handles scrolling element into view or scrolling the container/page."""
+        if step.target is not None:
+            loc = resolve_locator(page, step.target).first
+            await loc.scroll_into_view_if_needed(timeout=timeout_ms)
+            return {"scrolled_to_target": True}
+        else:
+            direction = step.direction or "down"
+            delta_x = 0
+            delta_y = 0
+            if direction == "down":
+                delta_y = step.amount
+            elif direction == "up":
+                delta_y = -step.amount
+            elif direction == "right":
+                delta_x = step.amount
+            elif direction == "left":
+                delta_x = -step.amount
+            await page.mouse.wheel(delta_x, delta_y)
+            return {"scrolled": True, "direction": direction, "amount": step.amount}
+
+    async def _handle_press_key(
+        self,
+        step: PressKeyStep,
+        page: Page,
+        context: ExecutionContext,
+        timeout_ms: int,
+    ) -> dict[str, Any]:
+        """Handles sending keyboard key events to element or active page."""
+        if step.target is not None:
+            loc = resolve_locator(page, step.target).first
+            await loc.wait_for(state="visible", timeout=timeout_ms)
+            if await loc.is_disabled():
+                raise ElementDisabledError(
+                    message=f"Element target '{step.target}' is disabled",
+                    step_id=step.id,
+                    details={"target": str(step.target)},
+                )
+            await loc.press(step.key, timeout=timeout_ms)
+        else:
+            await page.keyboard.press(step.key)
+        return {"pressed_key": step.key}
+
+    async def _handle_wait_for_state(
+        self,
+        step: WaitForStateStep,
+        page: Page,
+        context: ExecutionContext,
+        timeout_ms: int,
+    ) -> dict[str, Any]:
+        """Handles waiting for element UI state (visible, hidden, attached, detached)."""
+        loc = resolve_locator(page, step.target).first
+        await loc.wait_for(state=step.state, timeout=timeout_ms)
+        return {"waited_for_state": step.state}
+
+    async def _handle_notify_user(
+        self,
+        step: NotifyUserStep,
+        page: Page,
+        context: ExecutionContext,
+        timeout_ms: int,
+    ) -> dict[str, Any]:
+        """Handles user notification step without external network leakage."""
+        logger.info("Notification [%s]: %s", step.level.upper(), step.message)
+        return {"notified": True, "level": step.level, "message": step.message}
+
+    async def _handle_request_human_action(
+        self,
+        step: RequestHumanActionStep,
+        page: Page,
+        context: ExecutionContext,
+        timeout_ms: int,
+    ) -> dict[str, Any]:
+        """Handles pausing execution and requesting human intervention."""
+        logger.warning("Human action requested: %s", step.prompt)
+        return {"human_action_requested": True, "prompt": step.prompt}
 
     async def _handle_navigate(
         self,
@@ -640,6 +876,39 @@ class WorkflowInterpreter:
                 )
 
         status_code = response.status if response else 200
+        if status_code == 401:
+            raise StepVerificationError(
+                message=(
+                    f"Navigation received HTTP 401 Unauthorized from "
+                    f"{redact_url_credentials(current_url)}"
+                ),
+                code="HTTP_401_UNAUTHORIZED",
+                step_id=step.id,
+                details={"status_code": 401, "error_code": "HTTP_401_UNAUTHORIZED"},
+            )
+        elif status_code == 403:
+            raise StepVerificationError(
+                message=(
+                    f"Navigation received HTTP 403 Forbidden from "
+                    f"{redact_url_credentials(current_url)}"
+                ),
+                code="HTTP_403_FORBIDDEN",
+                step_id=step.id,
+                details={"status_code": 403, "error_code": "HTTP_403_FORBIDDEN"},
+            )
+        elif status_code == 429:
+            retry_after = (response.headers.get("retry-after") if response else "2") or "2"
+            raise StepVerificationError(
+                message=f"Navigation received HTTP 429 Rate Limited (Retry-After: {retry_after}s)",
+                code="HTTP_429_RATE_LIMITED",
+                step_id=step.id,
+                details={
+                    "status_code": 429,
+                    "retry_after": retry_after,
+                    "error_code": "HTTP_429_RATE_LIMITED",
+                },
+            )
+
         return {
             "navigated_url": redact_url_credentials(current_url),
             "status_code": status_code,
@@ -688,9 +957,36 @@ class WorkflowInterpreter:
 
             try:
                 resp = await client.get(full_url)
-                if resp.status_code != 200:
+                if resp.status_code == 401:
+                    raise StepVerificationError(
+                        message=f"RewardLab API returned HTTP 401 Unauthorized on {endpoint}",
+                        code="HTTP_401_UNAUTHORIZED",
+                        step_id=step.id,
+                        details={"status_code": 401, "error_code": "HTTP_401_UNAUTHORIZED"},
+                    )
+                elif resp.status_code == 403:
+                    raise StepVerificationError(
+                        message=f"RewardLab API returned HTTP 403 Forbidden on {endpoint}",
+                        code="HTTP_403_FORBIDDEN",
+                        step_id=step.id,
+                        details={"status_code": 403, "error_code": "HTTP_403_FORBIDDEN"},
+                    )
+                elif resp.status_code == 429:
+                    retry_after = resp.headers.get("retry-after", "2")
+                    raise StepVerificationError(
+                        message=f"RewardLab API returned HTTP 429 Rate Limited on {endpoint}",
+                        code="HTTP_429_RATE_LIMITED",
+                        step_id=step.id,
+                        details={
+                            "status_code": 429,
+                            "retry_after": retry_after,
+                            "error_code": "HTTP_429_RATE_LIMITED",
+                        },
+                    )
+                elif resp.status_code != 200:
                     raise StepVerificationError(
                         message=f"RewardLab API returned HTTP {resp.status_code} on {endpoint}",
+                        code=f"HTTP_{resp.status_code}",
                         step_id=step.id,
                         details={"status_code": resp.status_code, "body": resp.text[:200]},
                     )

@@ -465,6 +465,17 @@ async def mark_task_reviewed(request: Request, task_id: str) -> Response:
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
+    # Check for simulated lost response after successful mutation
+    if request.headers.get("x-test-fault-lost-response") == "true":
+        content = (
+            "<!DOCTYPE html><html><body><h1>504 Gateway Timeout</h1>"
+            "<p>Response lost</p></body></html>"
+        )
+        return HTMLResponse(
+            content=content,
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+        )
+
     # Refresh user & task data after state update
     updated_user = store.users.get(user.username)
     updated_task = store.get_task_for_user(user.username, task_id)
@@ -479,6 +490,26 @@ async def mark_task_reviewed(request: Request, task_id: str) -> Response:
             "success_msg": msg,
             "button_label": button_label,
         },
+    )
+
+
+@app.get("/ui-fixtures", response_class=HTMLResponse)
+async def ui_fixtures_page(request: Request) -> Response:
+    """Fixture page for testing browser interactions, hover, scroll, delay, detached elements."""
+    return templates.TemplateResponse(
+        request=request,
+        name="ui_fixtures.html",
+        context={"user": get_current_user(request)},
+    )
+
+
+@app.get("/security-challenge", response_class=HTMLResponse)
+async def security_challenge_page(request: Request) -> Response:
+    """Fixture page simulating security checkpoint/challenge requiring operator review."""
+    return templates.TemplateResponse(
+        request=request,
+        name="security_challenge.html",
+        context={"user": get_current_user(request)},
     )
 
 

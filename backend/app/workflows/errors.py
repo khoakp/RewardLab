@@ -151,12 +151,13 @@ class StepAssertionError(WorkflowExecutionError):
     def __init__(
         self,
         message: str,
+        code: str = "ASSERTION_FAILED",
         step_id: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             message=message,
-            code="ASSERTION_FAILED",
+            code=code,
             step_id=step_id,
             details=details,
         )
@@ -168,12 +169,81 @@ class StepVerificationError(WorkflowExecutionError):
     def __init__(
         self,
         message: str,
+        code: str = "STATE_VERIFICATION_FAILED",
         step_id: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             message=message,
-            code="STATE_VERIFICATION_FAILED",
+            code=code,
+            step_id=step_id,
+            details=details,
+        )
+
+
+class ElementDisabledError(WorkflowExecutionError):
+    """Raised when attempting to interact with a disabled element."""
+
+    def __init__(
+        self,
+        message: str,
+        step_id: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message=message,
+            code="ELEMENT_DISABLED",
+            step_id=step_id,
+            details=details,
+        )
+
+
+class ElementDetachedError(WorkflowExecutionError):
+    """Raised when an element is detached from the DOM during interaction."""
+
+    def __init__(
+        self,
+        message: str,
+        step_id: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message=message,
+            code="ELEMENT_DETACHED",
+            step_id=step_id,
+            details=details,
+        )
+
+
+class ModalBlockingError(WorkflowExecutionError):
+    """Raised when an interactive element is obscured by a modal, overlay, or backdrop."""
+
+    def __init__(
+        self,
+        message: str,
+        step_id: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message=message,
+            code="MODAL_BLOCKING",
+            step_id=step_id,
+            details=details,
+        )
+
+
+class SecurityChallengeError(WorkflowExecutionError):
+    """Raised when an interaction encounters a CAPTCHA, MFA, or security challenge."""
+
+    def __init__(
+        self,
+        message: str,
+        step_id: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message=message,
+            code="SECURITY_CHALLENGE_REQUIRED",
             step_id=step_id,
             details=details,
         )

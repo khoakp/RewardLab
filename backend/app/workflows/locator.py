@@ -5,6 +5,7 @@ from playwright.async_api import Locator, Page
 from app.workflows.errors import WorkflowValidationError
 from app.workflows.schema import (
     CssLocator,
+    LabelLocator,
     LocatorTarget,
     RoleLocator,
     TestIdLocator,
@@ -29,6 +30,9 @@ def resolve_locator(page_or_locator: Page | Locator, target: LocatorTarget) -> L
 
         case TextLocator():
             return page_or_locator.get_by_text(target.value, exact=target.exact)
+
+        case LabelLocator():
+            return page_or_locator.get_by_label(target.value, exact=target.exact)
 
         case CssLocator():
             return page_or_locator.locator(target.value)

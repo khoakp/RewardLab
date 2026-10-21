@@ -70,6 +70,21 @@ class TextLocator(BaseModel):
         return v_stripped
 
 
+class LabelLocator(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    by: Literal["label"] = "label"
+    value: str = Field(..., min_length=1, max_length=256)
+    exact: bool = False
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, v: str) -> str:
+        v_stripped = v.strip()
+        if not v_stripped:
+            raise ValueError("label locator value must not be empty or whitespace-only")
+        return v_stripped
+
+
 class CssLocator(BaseModel):
     model_config = ConfigDict(extra="forbid")
     by: Literal["css"] = "css"
@@ -102,7 +117,7 @@ class XPathLocator(BaseModel):
 
 
 LocatorTarget = Annotated[
-    RoleLocator | TestIdLocator | TextLocator | CssLocator | XPathLocator,
+    RoleLocator | TestIdLocator | TextLocator | LabelLocator | CssLocator | XPathLocator,
     Field(discriminator="by"),
 ]
 
@@ -153,6 +168,31 @@ class FillStep(StepBase):
     target: LocatorTarget
     value: str = Field(..., max_length=2048)
     clear_before: bool = True
+
+
+class HoverStep(StepBase):
+    action: Literal["hover"] = "hover"
+    target: LocatorTarget
+    force: bool = False
+
+
+class ScrollStep(StepBase):
+    action: Literal["scroll"] = "scroll"
+    target: LocatorTarget | None = None
+    direction: Literal["up", "down", "left", "right"] | None = "down"
+    amount: int = Field(default=300, ge=1, le=10000)
+
+
+class PressKeyStep(StepBase):
+    action: Literal["press_key"] = "press_key"
+    key: str = Field(..., min_length=1, max_length=64)
+    target: LocatorTarget | None = None
+
+
+class WaitForStateStep(StepBase):
+    action: Literal["wait_for_state"] = "wait_for_state"
+    target: LocatorTarget
+    state: Literal["visible", "hidden", "attached", "detached"] = "visible"
 
 
 class WaitVisibleStep(StepBase):
@@ -211,6 +251,10 @@ WorkflowStep = Annotated[
     NavigateStep
     | ClickStep
     | FillStep
+    | HoverStep
+    | ScrollStep
+    | PressKeyStep
+    | WaitForStateStep
     | WaitVisibleStep
     | AssertVisibleStep
     | ExtractTextStep

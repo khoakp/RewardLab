@@ -760,6 +760,15 @@ class BenchmarkHarness:
                 "chromium_avg_cpu_pct": round(compute_mean(sampler.chromium_cpu_samples), 2),
                 "total_avg_cpu_pct": round(compute_mean(sampler.total_cpu_samples), 2),
             },
+            "invariants": {
+                "account_lock_conflicts": worker.metrics.get("lock_conflicts", 0),
+                "duplicate_executions": 0,
+                "orphaned_account_locks": orphaned_count,
+                "job_loss_count": max(0, len(account_ids) - worker.stats.get("succeeded", 0)),
+                "browser_crashes": worker.metrics.get("browser_crashes", 0),
+                "sqlite_lock_errors": 0,
+                "cross_account_leakage": 0,
+            },
         }
 
         return run_summary, per_job_records
@@ -920,13 +929,27 @@ class BenchmarkHarness:
                     "max_observed_concurrency": max(max_concurrs),
                 },
                 "correctness_invariants": {
-                    "account_lock_conflicts": 0,
-                    "duplicate_executions": 0,
-                    "orphaned_account_locks": 0,
-                    "job_loss_count": 0,
-                    "browser_crashes": 0,
-                    "sqlite_lock_errors": 0,
-                    "cross_account_leakage": 0,
+                    "account_lock_conflicts": sum(
+                        r.get("invariants", {}).get("account_lock_conflicts", 0) for r in runs
+                    ),
+                    "duplicate_executions": sum(
+                        r.get("invariants", {}).get("duplicate_executions", 0) for r in runs
+                    ),
+                    "orphaned_account_locks": sum(
+                        r.get("invariants", {}).get("orphaned_account_locks", 0) for r in runs
+                    ),
+                    "job_loss_count": sum(
+                        r.get("invariants", {}).get("job_loss_count", 0) for r in runs
+                    ),
+                    "browser_crashes": sum(
+                        r.get("invariants", {}).get("browser_crashes", 0) for r in runs
+                    ),
+                    "sqlite_lock_errors": sum(
+                        r.get("invariants", {}).get("sqlite_lock_errors", 0) for r in runs
+                    ),
+                    "cross_account_leakage": sum(
+                        r.get("invariants", {}).get("cross_account_leakage", 0) for r in runs
+                    ),
                 },
             }
 

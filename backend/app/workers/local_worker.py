@@ -50,6 +50,7 @@ from app.security.session_store import SecureSessionStore
 from app.workflows.results import (
     WorkflowExecutionResult,
     WorkflowExecutionStatus,
+    WorkflowOutcomeType,
 )
 from app.workflows.schema import WorkflowDefinition
 
@@ -88,7 +89,7 @@ class LocalWorker:
         session_factory: async_sessionmaker[AsyncSession],
         browser_manager: BrowserManager | None = None,
         worker_id: str | None = None,
-        max_concurrency: int = 2,
+        max_concurrency: int = 1,
         poll_interval_seconds: float = 1.0,
         lease_duration_seconds: int = 60,
         provider_filter: str | None = None,
@@ -570,6 +571,7 @@ class LocalWorker:
                         base_url=self.base_url,
                         context_timeout_seconds=timeout_val,
                         policy_evaluator=self.policy_evaluator,
+                        is_aborted_callback=lost_heartbeat.is_set,
                     )
                 )
 
@@ -663,13 +665,29 @@ class LocalWorker:
                         ),
                         details={
                             "action": step_res.action,
+                            "outcome_type": (
+                                step_res.outcome_type.value
+                                if step_res.outcome_type
+                                else WorkflowOutcomeType.ACTION_EXECUTED.value
+                            ),
                             "duration_ms": step_res.duration_ms,
                             "output_data": redact_data(step_res.output_data),
                         },
                     )
 
-                # Final state transition with lease token fencing check
-                if result.status == WorkflowExecutionStatus.SUCCESS:
+                # Final state transition with lease token fencing check.
+                # Do not mark SUCCEEDED if outcome unconfirmed, provider rejected,
+                # or human action is required.
+                if (
+                    result.status == WorkflowExecutionStatus.SUCCESS
+                    and not result.requires_verification
+                    and result.outcome_type
+                    not in (
+                        WorkflowOutcomeType.OUTCOME_UNCONFIRMED,
+                        WorkflowOutcomeType.PROVIDER_REJECTED,
+                        WorkflowOutcomeType.HUMAN_ACTION_REQUIRED,
+                    )
+                ):
                     await job_service.complete_job(
                         job_id=info.job_id,
                         worker_id=self.worker_id,
@@ -692,22 +710,41 @@ class LocalWorker:
                     logger.info("Job '%s' recorded as CANCELLED", info.job_id)
 
                 else:
-                    # FAILED, TIMEOUT, or POLICY_DENIED
+                    # FAILED, TIMEOUT, POLICY_DENIED, or unconfirmed outcome / human action
+                    req_verif = (
+                        result.requires_verification
+                        or result.outcome_type
+                        in (
+                            WorkflowOutcomeType.OUTCOME_UNCONFIRMED,
+                            WorkflowOutcomeType.HUMAN_ACTION_REQUIRED,
+                        )
+                    )
+                    err_code = result.error_code
+                    if not err_code:
+                        if result.outcome_type == WorkflowOutcomeType.OUTCOME_UNCONFIRMED:
+                            err_code = "OUTCOME_UNCONFIRMED"
+                        elif result.outcome_type == WorkflowOutcomeType.HUMAN_ACTION_REQUIRED:
+                            err_code = "HUMAN_ACTION_REQUIRED"
+                        elif result.outcome_type == WorkflowOutcomeType.PROVIDER_REJECTED:
+                            err_code = "PROVIDER_REJECTED"
+                        else:
+                            err_code = "EXECUTION_FAILED"
+
                     _, category, can_retry = await job_service.fail_job(
                         job_id=info.job_id,
                         worker_id=self.worker_id,
                         lease_token=info.lease_token,
-                        error_code=result.error_code or "EXECUTION_FAILED",
+                        error_code=err_code,
                         error_message=redact_url_credentials(result.error_message),
-                        requires_verification=result.requires_verification,
+                        requires_verification=req_verif,
                         actor=self.worker_id,
                     )
-                    if result.requires_verification:
+                    if req_verif:
                         self._stats["paused_for_review"] += 1
                         self._metrics_tracker.record_job_outcome("paused")
                         logger.warning(
                             "Job '%s' placed in PAUSED_FOR_REVIEW "
-                            "(side effect ambiguous; account hold active)",
+                            "(side effect ambiguous or human action required; account hold active)",
                             info.job_id,
                         )
                     else:
@@ -761,8 +798,11 @@ def build_worker_parser() -> argparse.ArgumentParser:
         "--concurrency",
         dest="max_concurrency",
         type=int,
-        default=2,
-        help="Maximum concurrent execution slots (default: 2).",
+        default=1,
+        help=(
+            "Maximum concurrent execution slots "
+            "(default: 1 for active laptop, 2 allowed when idle)."
+        ),
     )
 
     parser.add_argument(
