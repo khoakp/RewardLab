@@ -15,3 +15,5 @@ playwright/.auth/
 **/traces/
 **/screenshots_sensitive/
 *.log
+
+/backend/var/diagnostics/

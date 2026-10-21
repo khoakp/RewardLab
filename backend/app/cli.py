@@ -770,10 +770,19 @@ def run_workflow_cli(
 
 def main() -> None:
     """Console script entrypoint."""
-    if len(sys.argv) > 1 and sys.argv[1] == "worker":
-        from app.workers.local_worker import run_worker_cli
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "worker":
+            from app.workers.local_worker import run_worker_cli
 
-        sys.exit(run_worker_cli(sys.argv[2:]))
+            sys.exit(run_worker_cli(sys.argv[2:]))
+        elif sys.argv[1] == "jobs":
+            from app.operator_cli import run_jobs_cli
+
+            sys.exit(run_jobs_cli(sys.argv[2:]))
+        elif sys.argv[1] in ("inspect", "inspect-workflow"):
+            from app.operator_cli import run_inspect_cli
+
+            sys.exit(run_inspect_cli(sys.argv[2:]))
     sys.exit(run_workflow_cli())
 
 

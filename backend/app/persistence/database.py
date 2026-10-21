@@ -62,11 +62,7 @@ def get_session_factory(
     engine: AsyncEngine | str | None = None,
 ) -> async_sessionmaker[AsyncSession]:
     """Returns an async sessionmaker bound to the given engine or database URL."""
-    eng = (
-        get_async_engine(engine)
-        if isinstance(engine, str)
-        else (engine or get_async_engine())
-    )
+    eng = get_async_engine(engine) if isinstance(engine, str) else (engine or get_async_engine())
     return async_sessionmaker(
         bind=eng,
         class_=AsyncSession,

@@ -596,4 +596,3 @@ class BrowserManager:
 
 
 get_browser_diagnostics = BrowserManager.get_browser_diagnostics
-

@@ -93,10 +93,7 @@ class ReauthenticationManager:
                 # Extract cookie from headers or cookies
                 session_token = None
                 for header_name, header_val in resp.headers.items():
-                    if (
-                        header_name.lower() == "set-cookie"
-                        and "rewardlab_session=" in header_val
-                    ):
+                    if header_name.lower() == "set-cookie" and "rewardlab_session=" in header_val:
                         parts = header_val.split(";")[0].split("=", 1)
                         if len(parts) == 2:
                             session_token = parts[1].strip()

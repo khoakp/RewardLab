@@ -182,3 +182,58 @@ echo "Exit code: $?"
 # Policy Denied: Automation is prohibited for provider 'microsoft_rewards'.
 # Exit code: 2
 ```
+
+---
+
+## 5. Personal Operator Console (`adbap jobs`)
+
+The `adbap jobs` command suite enables an operator to observe paused automation jobs, inspect step execution history, and safely cancel or reject jobs requiring operator review without blind retries or duplicate side effects.
+
+### 5.1 Command Synopsis
+
+```text
+adbap jobs list [--status STATUS] [--account ACCOUNT] [--limit N] [--offset N] [--json]
+adbap jobs show <job-id> [--json]
+adbap jobs review <job-id> --decision {cancel,reject} --reason "..." [--actor NAME] [--json]
+```
+
+### 5.2 Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `list` | Lists jobs filtered by status (default: `PAUSED_FOR_REVIEW`) or account ID with formatted table or JSON. |
+| `show` | Displays job details, execution outcome, unverified/verified mutations, executed steps, pause reason, and audit trail. Redacts all credentials and secrets. |
+| `review` | Applies a safe operator review decision (`cancel` or `reject`). Mandatory non-empty `--reason` required. Transitions directly to `SUCCEEDED` are strictly prohibited. |
+
+### 5.3 Review Workflow Example
+
+```bash
+# 1. List paused jobs
+uv run adbap jobs list --status PAUSED_FOR_REVIEW
+
+# 2. Inspect the paused job
+uv run adbap jobs show job_0192d4f2
+
+# 3. Reject or cancel the job with explicit reasoning
+uv run adbap jobs review job_0192d4f2 --decision cancel --reason "Operator verified mutation manually on server"
+```
+
+---
+
+## 6. Lightweight Workflow Inspector (`adbap inspect-workflow`)
+
+The `adbap inspect-workflow` command provides a fast, zero-browser static inspection of workflow definitions.
+
+### 6.1 Command Synopsis
+
+```text
+adbap inspect-workflow <workflow-file> [--json]
+```
+
+### 6.2 Capabilities
+
+- **Zero Browser Allocation:** Inspects workflows without launching Chromium or opening network sockets.
+- **Pre-Dispatch Policy Validation:** Statically evaluates `ProviderPolicy` (e.g., rejecting Microsoft Rewards or unapproved capabilities with clear explanations).
+- **Causal Mapping Analysis:** Maps mutating steps to their corresponding `verifies_step_ids` postconditions and alerts on unverified mutations or missing verification steps.
+- **Locator Strategy Inspection:** Prints targeted actions and locator strategies for auditability.
+

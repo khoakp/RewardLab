@@ -215,9 +215,7 @@ def test_cross_account_aad_mismatch_fails(crypto: SessionCrypto):
 # =============================================================================
 
 
-async def test_encrypted_session_persistence(
-    async_db_session: AsyncSession, crypto: SessionCrypto
-):
+async def test_encrypted_session_persistence(async_db_session: AsyncSession, crypto: SessionCrypto):
     """Verifies that saved sessions are encrypted in database rows with zero plaintext tokens."""
     store = SecureSessionStore(async_db_session, crypto=crypto)
     raw_token = "secret_bearer_token_xyz_999"
@@ -255,8 +253,7 @@ async def test_encrypted_session_persistence(
 
 
 async def test_plaintext_session_token_not_found_in_db_file(tmp_path: Path):
-    """Inspects raw binary contents of file-backed SQLite database to prove zero plaintext tokens.
-    """
+    """Inspects raw binary contents of file-backed database to prove zero plaintext tokens."""
     db_path = tmp_path / "raw_check.db"
     db_url = f"sqlite+aiosqlite:///{db_path}"
 
@@ -431,9 +428,7 @@ async def test_session_invalidation_on_server_restart(
 # =============================================================================
 
 
-async def test_reauthentication_flow_success(
-    async_db_session: AsyncSession, crypto: SessionCrypto
-):
+async def test_reauthentication_flow_success(async_db_session: AsyncSession, crypto: SessionCrypto):
     """Tests successful reauthentication: calls /login, gets cookie, saves encrypted session."""
     store = SecureSessionStore(async_db_session, crypto=crypto)
     reauth_mgr = ReauthenticationManager(async_db_session, store)
@@ -677,8 +672,7 @@ def test_migrated_db_foreign_keys_and_uniques(tmp_path: Path):
 async def test_browser_context_isolation_with_stored_session(
     async_db_session: AsyncSession, crypto: SessionCrypto
 ):
-    """Verifies that decrypted session cookies are injected into BrowserContext with zero leakage.
-    """
+    """Verifies decrypted session cookies are injected into BrowserContext with zero leakage."""
     from app.execution.browser_manager import BrowserManager
 
     store = SecureSessionStore(async_db_session, crypto=crypto)
@@ -720,4 +714,3 @@ async def test_browser_context_isolation_with_stored_session(
         assert len(cookies1) > len(cookies2)
     finally:
         await bm.stop()
-

@@ -691,10 +691,7 @@ async def test_no_secrets_persisted_in_job_records(in_memory_session: AsyncSessi
     await in_memory_session.commit()
 
     # Inspect all attributes of JobModel
-    job_dict = {
-        col.name: getattr(job, col.name)
-        for col in JobModel.__table__.columns
-    }
+    job_dict = {col.name: getattr(job, col.name) for col in JobModel.__table__.columns}
     forbidden_substrings = ["password", "token", "cookie", "secret", "bearer"]
     for col_name, val in job_dict.items():
         if col_name in ("lease_token",):  # lease_token is an integer monotonic counter

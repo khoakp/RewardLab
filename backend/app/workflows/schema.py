@@ -161,6 +161,7 @@ class ClickStep(StepBase):
     side_effect: bool = False
     button: Literal["left", "right", "middle"] = "left"
     click_count: int = Field(default=1, ge=1, le=3)
+    task_id: str | None = Field(default=None, max_length=64)
 
 
 class FillStep(StepBase):
@@ -168,6 +169,7 @@ class FillStep(StepBase):
     target: LocatorTarget
     value: str = Field(..., max_length=2048)
     clear_before: bool = True
+    task_id: str | None = Field(default=None, max_length=64)
 
 
 class HoverStep(StepBase):
@@ -188,6 +190,7 @@ class PressKeyStep(StepBase):
     key: str = Field(..., min_length=1, max_length=64)
     target: LocatorTarget | None = None
     side_effect: bool = False
+    task_id: str | None = Field(default=None, max_length=64)
 
 
 class WaitForStateStep(StepBase):
@@ -219,6 +222,7 @@ class VerifyStateStep(StepBase):
     equals: Any = Field(...)
     target: LocatorTarget | None = None
     task_id: str | None = Field(default=None, max_length=64)
+    verifies_step_ids: list[str] | None = Field(default=None, min_length=1, max_length=32)
 
 
 class SaveResultStep(StepBase):
@@ -266,6 +270,21 @@ WorkflowStep = Annotated[
     Field(discriminator="action"),
 ]
 
+KEYBOARD_SUBMISSION_KEYS: frozenset[str] = frozenset({"enter", "numpadenter", "return"})
+
+
+def is_step_mutating(step: WorkflowStep) -> bool:
+    """Evaluates whether an action step causes persistent or side-effect mutations."""
+    if getattr(step, "side_effect", False) is True:
+        return True
+    if step.action in ("click", "fill"):
+        return True
+    if step.action == "press_key":
+        key = getattr(step, "key", "").strip().lower()
+        if key in KEYBOARD_SUBMISSION_KEYS:
+            return True
+    return False
+
 
 # =============================================================================
 # Execution Limits & Root Workflow Definition
@@ -309,4 +328,52 @@ class WorkflowDefinition(BaseModel):
             seen_ids.add(step.id)
         if duplicates:
             raise ValueError(f"Duplicate step IDs found in workflow: {sorted(set(duplicates))}")
+        return self
+
+    @model_validator(mode="after")
+    def validate_verification_mappings(self) -> "WorkflowDefinition":
+        step_map: dict[str, tuple[int, WorkflowStep]] = {
+            step.id: (idx, step) for idx, step in enumerate(self.steps)
+        }
+        for idx, step in enumerate(self.steps):
+            if isinstance(step, VerifyStateStep) and step.verifies_step_ids is not None:
+                if len(step.verifies_step_ids) == 0:
+                    raise ValueError(
+                        f"Step '{step.id}': 'verifies_step_ids' cannot be empty when specified"
+                    )
+                if len(step.verifies_step_ids) != len(set(step.verifies_step_ids)):
+                    raise ValueError(f"Step '{step.id}': duplicate step IDs in 'verifies_step_ids'")
+                for ref_id in step.verifies_step_ids:
+                    if ref_id not in step_map:
+                        raise ValueError(
+                            f"Step '{step.id}': verifies_step_ids references non-existent "
+                            f"step '{ref_id}'"
+                        )
+                    ref_idx, ref_step = step_map[ref_id]
+                    if ref_idx >= idx:
+                        raise ValueError(
+                            f"Step '{step.id}': verifies_step_ids references step '{ref_id}' "
+                            "which does not appear before it"
+                        )
+                    if not is_step_mutating(ref_step):
+                        raise ValueError(
+                            f"Step '{step.id}': verifies_step_ids references step '{ref_id}' "
+                            f"which is not a mutating step (action='{ref_step.action}')"
+                        )
+                    # Task scope mismatch validation:
+                    ref_task = getattr(ref_step, "task_id", None)
+                    if not ref_task and getattr(ref_step, "url", None):
+                        m = re.search(r"/tasks/([a-zA-Z0-9_-]+)", str(ref_step.url))
+                        if m:
+                            ref_task = m.group(1)
+                    if not ref_task and getattr(ref_step, "path", None):
+                        m = re.search(r"/tasks/([a-zA-Z0-9_-]+)", str(ref_step.path))
+                        if m:
+                            ref_task = m.group(1)
+                    if step.task_id and ref_task and step.task_id != ref_task:
+                        raise ValueError(
+                            f"Step '{step.id}': task scope mismatch: verification for "
+                            f"'{step.task_id}' cannot verify mutation '{ref_id}' for task "
+                            f"'{ref_task}'"
+                        )
         return self

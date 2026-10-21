@@ -45,6 +45,7 @@ from app.workflows.schema import (
     WaitVisibleStep,
     WorkflowDefinition,
     WorkflowStep,
+    is_step_mutating,
 )
 
 logger = get_logger("adbap.workflows.interpreter")
@@ -66,23 +67,7 @@ SUPPORTED_ACTIONS = {
     "request_human_action",
 }
 
-
 KEYBOARD_SUBMISSION_KEYS = {"enter", "numpadenter", "return"}
-
-
-def _is_step_mutating(step: WorkflowStep) -> bool:
-    """Evaluates whether an action step causes persistent or side-effect mutations."""
-    if getattr(step, "side_effect", False) is True:
-        return True
-    if step.action == "click":
-        return True
-    if step.action == "fill":
-        return True
-    if step.action == "press_key":
-        key = getattr(step, "key", "").strip().lower()
-        if key in KEYBOARD_SUBMISSION_KEYS:
-            return True
-    return False
 
 
 class ExecutionContext:
@@ -248,6 +233,8 @@ class WorkflowInterpreter:
 
         total_mutations_executed = 0
         unverified_mutations: list[str] = []
+        verified_mutations: list[str] = []
+        step_by_id: dict[str, WorkflowStep] = {s.id: s for s in workflow.steps}
         had_verified_postcondition = False
         provider_rejected = False
         human_action_required = False
@@ -326,7 +313,7 @@ class WorkflowInterpreter:
                 ):
                     human_action_required = True
 
-                is_mutation = _is_step_mutating(step)
+                is_mutation = is_step_mutating(step)
                 if is_mutation:
                     mutating_step_attempted = True
                 if is_mutation and step_res.status == StepStatus.SUCCESS:
@@ -336,9 +323,53 @@ class WorkflowInterpreter:
 
                 if step.action == "verify_state" and step_res.status == StepStatus.SUCCESS:
                     had_verified_postcondition = True
-                    if unverified_mutations:
-                        # Causally verifies the earliest unverified mutation
-                        unverified_mutations.pop(0)
+                    verifies_ids = getattr(step, "verifies_step_ids", None)
+                    if verifies_ids is not None:
+                        for ref_id in verifies_ids:
+                            if ref_id in unverified_mutations:
+                                unverified_mutations.remove(ref_id)
+                                if ref_id not in verified_mutations:
+                                    verified_mutations.append(ref_id)
+                            # Duplicate verify of ref_id does NOT relieve other mutations
+                    else:
+                        # Legacy backward compatibility (verifies_step_ids is None)
+                        if len(unverified_mutations) == 1:
+                            # Single unambiguous pending mutation
+                            relieved = unverified_mutations.pop(0)
+                            if relieved not in verified_mutations:
+                                verified_mutations.append(relieved)
+                        elif len(unverified_mutations) > 1:
+                            # Check if pending mutations form a cohesive form sequence
+                            is_form_sequence = (
+                                len(unverified_mutations) >= 2
+                                and all(
+                                    step_by_id[s_id].action == "fill"
+                                    for s_id in unverified_mutations[:-1]
+                                )
+                                and (
+                                    step_by_id[unverified_mutations[-1]].action == "click"
+                                    or (
+                                        step_by_id[unverified_mutations[-1]].action == "press_key"
+                                        and getattr(step_by_id[unverified_mutations[-1]], "key", "")
+                                        .strip()
+                                        .lower()
+                                        in KEYBOARD_SUBMISSION_KEYS
+                                    )
+                                )
+                            )
+                            if is_form_sequence:
+                                for m_id in list(unverified_mutations):
+                                    if m_id not in verified_mutations:
+                                        verified_mutations.append(m_id)
+                                unverified_mutations.clear()
+                            else:
+                                # Ambiguous multiple mutations: fail-closed!
+                                logger.warning(
+                                    "Legacy verification step '%s' encountered ambiguous "
+                                    "mutations %s; fail-closed without auto-relieving",
+                                    step.id,
+                                    unverified_mutations,
+                                )
 
                 if step_res.error_code in (
                     "POLICY_DENIED",
@@ -439,6 +470,8 @@ class WorkflowInterpreter:
             duration_seconds=duration_sec,
             can_retry=False,
             requires_verification=requires_verification,
+            unverified_mutations=list(unverified_mutations),
+            verified_mutations=list(verified_mutations),
         )
 
     def _skip_remaining_steps(

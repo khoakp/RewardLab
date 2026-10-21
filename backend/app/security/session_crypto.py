@@ -138,9 +138,7 @@ class SessionCrypto:
         try:
             combined = base64.urlsafe_b64decode(ciphertext_b64.encode("utf-8"))
         except (binascii.Error, ValueError) as err:
-            raise SessionTamperedError(
-                "Invalid session ciphertext: base64 decode failed."
-            ) from err
+            raise SessionTamperedError("Invalid session ciphertext: base64 decode failed.") from err
 
         min_len = self.NONCE_SIZE + self.TAG_SIZE
         if len(combined) < min_len:

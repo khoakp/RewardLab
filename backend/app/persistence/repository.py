@@ -195,9 +195,7 @@ class SessionRefRepository:
             await self.session.flush()
         return ref
 
-    async def list_session_refs_for_account(
-        self, account_id: str
-    ) -> list[SessionRefModel]:
+    async def list_session_refs_for_account(self, account_id: str) -> list[SessionRefModel]:
         """Lists all session references for an account in reverse chronological order."""
         stmt = (
             select(SessionRefModel)
@@ -317,6 +315,24 @@ class JobRepository:
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
+    async def list_jobs(
+        self,
+        status: JobStatus | str | None = None,
+        account_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[JobModel]:
+        """Lists jobs ordered by creation time descending with optional filters."""
+        stmt = select(JobModel)
+        if status is not None:
+            status_val = status.value if isinstance(status, JobStatus) else str(status)
+            stmt = stmt.where(JobModel.status == status_val)
+        if account_id is not None:
+            stmt = stmt.where(JobModel.account_id == account_id)
+        stmt = stmt.order_by(desc(JobModel.created_at)).offset(offset).limit(limit)
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
     async def get_by_idempotency_key(self, idempotency_key: str) -> JobModel | None:
         stmt = select(JobModel).where(JobModel.idempotency_key == idempotency_key)
         res = await self.session.execute(stmt)
@@ -410,9 +426,7 @@ class JobRepository:
         await self.session.flush()
         return (res.rowcount or 0) > 0
 
-    async def get_account_execution_lock(
-        self, account_id: str
-    ) -> AccountExecutionLockModel | None:
+    async def get_account_execution_lock(self, account_id: str) -> AccountExecutionLockModel | None:
         """Retrieves active execution lock for account, cleaning up if expired."""
         stmt = select(AccountExecutionLockModel).where(
             AccountExecutionLockModel.account_id == account_id
@@ -479,13 +493,10 @@ class JobRepository:
             .limit(10)
         )
         if provider_id is not None:
-            stmt = (
-                stmt.join(
-                    WorkflowVersionModel,
-                    JobModel.workflow_version_id == WorkflowVersionModel.id,
-                )
-                .where(WorkflowVersionModel.provider_id == provider_id)
-            )
+            stmt = stmt.join(
+                WorkflowVersionModel,
+                JobModel.workflow_version_id == WorkflowVersionModel.id,
+            ).where(WorkflowVersionModel.provider_id == provider_id)
 
         res = await self.session.execute(stmt)
         candidates = list(res.scalars().all())
@@ -585,9 +596,7 @@ class JobRepository:
             JobStatus.PAUSED_FOR_REVIEW,
             JobStatus.RETRY_WAIT,
         ):
-            await self.release_account_execution_lock(
-                account_id=job.account_id, job_id=job.id
-            )
+            await self.release_account_execution_lock(account_id=job.account_id, job_id=job.id)
 
         if lease_owner is not None:
             job.lease_owner = lease_owner

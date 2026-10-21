@@ -56,9 +56,7 @@ rewardlab_root = Path(__file__).resolve().parents[2] / "rewardlab"
 if str(rewardlab_root) not in sys.path:
     sys.path.insert(0, str(rewardlab_root))
 
-_spec = importlib.util.spec_from_file_location(
-    "rewardlab_main_app_p1_1", rewardlab_root / "app.py"
-)
+_spec = importlib.util.spec_from_file_location("rewardlab_main_app_p1_1", rewardlab_root / "app.py")
 _mod = importlib.util.module_from_spec(_spec)
 sys.modules["rewardlab_main_app_p1_1"] = _mod
 _spec.loader.exec_module(_mod)
@@ -71,6 +69,7 @@ rewardlab_store = rewardlab_data.store
 # -----------------------------------------------------------------------------
 # Fixtures
 # -----------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def anyio_backend() -> str:
@@ -169,6 +168,7 @@ async def sqlite_session_factory(tmp_path: Any) -> Any:
 # -----------------------------------------------------------------------------
 # 1. Human Action Must Stop Execution
 # -----------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_p1_1_human_action_halts_dispatch_and_skips_trailing_click(
@@ -351,12 +351,16 @@ steps:
     wf_file.write_text(wf_yaml, encoding="utf-8")
 
     parser = build_parser()
-    args = parser.parse_args([
-        str(wf_file),
-        "--base-url", rewardlab_server,
-        "--account", "test_01",
-        "--headless",
-    ])
+    args = parser.parse_args(
+        [
+            str(wf_file),
+            "--base-url",
+            rewardlab_server,
+            "--account",
+            "test_01",
+            "--headless",
+        ]
+    )
     exit_code, _ = await execute_cli_async(args, evaluator=policy_evaluator)
     # CLI must NOT return SUCCESS (0)
     assert exit_code == ExitCode.FAILED
@@ -365,6 +369,7 @@ steps:
 # -----------------------------------------------------------------------------
 # 2. Causal Outcome Verification (Cases A - E)
 # -----------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_p1_1_causal_case_a_verify_before_click_yields_unconfirmed(
@@ -629,6 +634,7 @@ async def test_p1_1_causal_case_e_lost_response_requires_verification(
 # -----------------------------------------------------------------------------
 # 3. Keyboard Side Effects
 # -----------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_p1_1_keyboard_enter_submission_treated_as_mutating(

@@ -229,9 +229,7 @@ async def test_atomic_lease_renewal_success_and_stale_rejection(file_db_factory)
         from datetime import UTC
 
         orig_tz = (
-            orig_lease_until
-            if orig_lease_until.tzinfo
-            else orig_lease_until.replace(tzinfo=UTC)
+            orig_lease_until if orig_lease_until.tzinfo else orig_lease_until.replace(tzinfo=UTC)
         )
         reloaded_tz = (
             reloaded.lease_until
@@ -655,9 +653,7 @@ async def test_real_subprocess_worker_crash_and_restart_recovery(file_db_factory
     if not claimed:
         proc.kill()
         log_text = log_file.read_text(encoding="utf-8") if log_file.exists() else "No log"
-        pytest.fail(
-            f"Subprocess worker failed to claim. Exit code: {proc.poll()}, Log: {log_text}"
-        )
+        pytest.fail(f"Subprocess worker failed to claim. Exit code: {proc.poll()}, Log: {log_text}")
 
     # 3. FORCEFULLY TERMINATE the process (SIGKILL / TerminateProcess) simulating hard crash
     proc.kill()

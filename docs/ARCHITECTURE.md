@@ -122,9 +122,10 @@ steps:
     source: rewardlab_api
     field: reviewed
     equals: true
+    verifies_step_ids: [mark_reviewed]
 ```
 
-Supported v1 actions: `navigate`, `wait_visible`, `extract_text`, `click`, `fill`, `assert_visible`, `verify_state`, `save_result`, `notify_user`, `request_human_action`. For side effects, require postcondition and idempotency strategy. Reject unsupported keys/actions with clear code. Read-only AI proposals default to draft status.
+Supported v1 actions: `navigate`, `wait_visible`, `extract_text`, `click`, `fill`, `assert_visible`, `verify_state`, `save_result`, `notify_user`, `request_human_action`, `hover`, `scroll`, `press_key`, `wait_for_state`. For side effects, require postcondition and explicit causal verification linking (`verifies_step_ids`). Reject unsupported keys/actions with clear code. Read-only AI proposals default to draft status.
 
 ## 8. Policy model
 

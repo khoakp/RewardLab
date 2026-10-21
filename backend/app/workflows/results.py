@@ -75,6 +75,8 @@ class WorkflowExecutionResult(BaseModel):
     duration_seconds: float = Field(default=0.0, ge=0.0)
     can_retry: bool = False
     requires_verification: bool = False
+    unverified_mutations: list[str] = Field(default_factory=list)
+    verified_mutations: list[str] = Field(default_factory=list)
     artifacts: list[str] = Field(default_factory=list)
 
     @property

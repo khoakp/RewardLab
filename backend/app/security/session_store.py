@@ -347,9 +347,7 @@ class SecureSessionStore:
 
         headers = {"Authorization": f"Bearer {session_data.session_token}"}
         cookies = {
-            c["name"]: c["value"]
-            for c in session_data.cookies
-            if "name" in c and "value" in c
+            c["name"]: c["value"] for c in session_data.cookies if "name" in c and "value" in c
         }
 
         try:

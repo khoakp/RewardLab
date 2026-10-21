@@ -256,3 +256,52 @@ class DiagnosticManager:
             except Exception as e:
                 logger.warning("Failed deleting %s: %s", item, e)
         return count
+
+    def resolve_diagnostic_path(self, filename_or_path: str | Path) -> Path:
+        """Resolves a diagnostic artifact path and strictly blocks path traversal.
+
+        Raises ValueError if path resolves outside artifacts_dir or contains traversal.
+        """
+        raw_str = str(filename_or_path).strip()
+        if not raw_str:
+            raise ValueError("Diagnostic path cannot be empty")
+
+        # Explicit check for traversal indicators
+        if ".." in raw_str:
+            raise ValueError("Path traversal forbidden in diagnostic path")
+
+        raw_p = Path(raw_str)
+        allowed_root = self.artifacts_dir.resolve()
+
+        if raw_p.is_absolute():
+            resolved = raw_p.resolve()
+        else:
+            resolved = (self.artifacts_dir / raw_p).resolve()
+
+        try:
+            resolved.relative_to(allowed_root)
+        except ValueError as err:
+            raise ValueError(
+                f"Path traversal detected: diagnostic path '{raw_str}' is outside "
+                f"allowed directory '{allowed_root}'"
+            ) from err
+
+        return resolved
+
+    def read_diagnostic_artifact(self, filename_or_path: str | Path) -> dict[str, Any]:
+        """Safely reads and redacts a JSON diagnostic artifact with traversal protection."""
+        resolved = self.resolve_diagnostic_path(filename_or_path)
+        if not resolved.exists():
+            raise FileNotFoundError(f"Diagnostic artifact not found: {resolved.name}")
+        if not resolved.is_file():
+            raise ValueError(f"Diagnostic path is not a file: {resolved.name}")
+        if resolved.suffix.lower() != ".json":
+            raise ValueError(
+                f"Direct reading of '{resolved.suffix}' artifacts is restricted. "
+                "Only structured JSON diagnostic summaries can be read directly."
+            )
+
+        with open(resolved, encoding="utf-8") as f:
+            data = json.load(f)
+
+        return redact_data(data)

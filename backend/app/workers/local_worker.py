@@ -711,13 +711,9 @@ class LocalWorker:
 
                 else:
                     # FAILED, TIMEOUT, POLICY_DENIED, or unconfirmed outcome / human action
-                    req_verif = (
-                        result.requires_verification
-                        or result.outcome_type
-                        in (
-                            WorkflowOutcomeType.OUTCOME_UNCONFIRMED,
-                            WorkflowOutcomeType.HUMAN_ACTION_REQUIRED,
-                        )
+                    req_verif = result.requires_verification or result.outcome_type in (
+                        WorkflowOutcomeType.OUTCOME_UNCONFIRMED,
+                        WorkflowOutcomeType.HUMAN_ACTION_REQUIRED,
                     )
                     err_code = result.error_code
                     if not err_code:

@@ -24,6 +24,7 @@ def get_process_rss_bytes() -> int:
     """Returns resident set size (RSS) in bytes for the current process."""
     if sys.platform == "win32":
         try:
+
             class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
                 _fields_ = [
                     ("cb", ctypes.c_ulong),

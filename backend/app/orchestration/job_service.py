@@ -27,6 +27,7 @@ from app.orchestration.state_machine import (
     compute_backoff_seconds,
 )
 from app.persistence.models import (
+    AuditEventModel,
     FailureCategory,
     JobModel,
     JobStatus,
@@ -476,9 +477,7 @@ class JobService:
         await self.session.flush()
         return True
 
-    async def reconcile_stale_jobs(
-        self, actor: str = "reconciler"
-    ) -> ReconciliationReport:
+    async def reconcile_stale_jobs(self, actor: str = "reconciler") -> ReconciliationReport:
         """Sweeps database to recover stale LEASED and RUNNING jobs (Milestone M3.5).
 
         Invariants:
@@ -673,3 +672,160 @@ class JobService:
 
         await self.session.flush()
         return report
+
+    async def list_jobs(
+        self,
+        status: JobStatus | str | None = None,
+        account_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[JobModel]:
+        """Lists jobs with optional status/account filter and pagination."""
+        return await self.job_repo.list_jobs(
+            status=status,
+            account_id=account_id,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def get_job_detail(self, job_id: str) -> dict[str, Any] | None:
+        """Retrieves comprehensive, sanitized details of a job for operator inspection."""
+        job = await self.job_repo.get_by_id(job_id)
+        if job is None:
+            return None
+
+        wf = await self.workflow_repo.get_by_id(job.workflow_version_id)
+        steps = await self.job_repo.list_steps_for_job(job.id)
+
+        stmt_audit = (
+            select(AuditEventModel)
+            .where(
+                (AuditEventModel.resource == f"job:{job.id}") | (AuditEventModel.resource == job.id)
+            )
+            .order_by(AuditEventModel.created_at.asc())
+        )
+        audit_res = await self.session.execute(stmt_audit)
+        audit_records = list(audit_res.scalars().all())
+
+        from app.observability.logging import redact_data
+
+        serialized_steps = []
+        for s in steps:
+            serialized_steps.append(
+                {
+                    "step_key": s.step_key,
+                    "attempt": s.attempt,
+                    "status": s.status,
+                    "started_at": s.started_at.isoformat() if s.started_at else None,
+                    "finished_at": s.finished_at.isoformat() if s.finished_at else None,
+                    "error_code": s.error_code,
+                    "error_message": s.error_message,
+                    "details": redact_data(s.details_json) if s.details_json else None,
+                }
+            )
+
+        serialized_audits = []
+        for a in audit_records:
+            serialized_audits.append(
+                {
+                    "id": a.id,
+                    "actor": a.actor,
+                    "action": a.action,
+                    "outcome": a.outcome,
+                    "created_at": a.created_at.isoformat() if a.created_at else None,
+                    "details": redact_data(a.sanitized_details) if a.sanitized_details else None,
+                }
+            )
+
+        detail = {
+            "job_id": job.id,
+            "account_id": job.account_id,
+            "provider_id": wf.provider_id if wf else None,
+            "workflow_version_id": job.workflow_version_id,
+            "workflow_key": wf.workflow_key if wf else None,
+            "workflow_version": wf.version if wf else None,
+            "status": job.status,
+            "is_paused_for_review": job.status == JobStatus.PAUSED_FOR_REVIEW.value,
+            "pause_reason": job.error_message
+            if job.status == JobStatus.PAUSED_FOR_REVIEW.value
+            else None,
+            "error_code": job.error_code,
+            "error_message": job.error_message,
+            "attempt": job.attempt,
+            "max_attempts": job.max_attempts,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "scheduled_at": job.scheduled_at.isoformat() if job.scheduled_at else None,
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+            "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+            "result_ref": job.result_ref,
+            "steps": serialized_steps,
+            "audit_events": serialized_audits,
+        }
+        return redact_data(detail)
+
+    async def review_job(
+        self,
+        job_id: str,
+        decision: str,
+        reason: str,
+        actor: str = "operator",
+    ) -> JobModel:
+        """Processes an operator review decision for a job in PAUSED_FOR_REVIEW.
+
+        Enforces:
+        - Job must currently be in PAUSED_FOR_REVIEW.
+        - Allowed decisions: 'cancel' -> CANCELLED, 'reject' -> REJECTED.
+        - Reason cannot be empty.
+        - Direct transition to SUCCEEDED is prohibited.
+        - Records immutable audit event.
+        - Transitions job state via state machine.
+        """
+        clean_dec = decision.strip().lower()
+        if clean_dec not in ("cancel", "reject"):
+            raise ValueError(
+                f"Invalid review decision '{decision}'. Allowed decisions are 'cancel' or 'reject'."
+            )
+
+        clean_reason = reason.strip()
+        if not clean_reason:
+            raise ValueError("Operator review requires a non-empty reason.")
+
+        job = await self.job_repo.get_by_id(job_id)
+        if job is None:
+            raise ValueError(f"Job '{job_id}' not found.")
+
+        current_status = JobStatus(job.status)
+        if current_status != JobStatus.PAUSED_FOR_REVIEW:
+            from app.orchestration.state_machine import IllegalStateTransitionError
+
+            raise IllegalStateTransitionError(
+                f"Job '{job_id}' is in status '{current_status.value}', not 'PAUSED_FOR_REVIEW'. "
+                "Only paused jobs can be reviewed."
+            )
+
+        target_status = JobStatus.CANCELLED if clean_dec == "cancel" else JobStatus.REJECTED
+
+        updated_job = await self.job_repo.transition_job_status(
+            job_id=job.id,
+            new_status=target_status,
+            error_code=f"OPERATOR_{clean_dec.upper()}",
+            error_message=f"Operator review decision [{clean_dec.upper()}]: {clean_reason}",
+        )
+
+        await self.audit_repo.record_event(
+            actor=actor,
+            action=f"jobs.review.{clean_dec}",
+            resource=f"job:{job.id}",
+            outcome=clean_dec,
+            sanitized_details={
+                "job_id": job.id,
+                "account_id": job.account_id,
+                "decision": clean_dec,
+                "reason": clean_reason,
+                "previous_status": JobStatus.PAUSED_FOR_REVIEW.value,
+                "target_status": target_status.value,
+            },
+        )
+        await self.session.flush()
+        return updated_job
