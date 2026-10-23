@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent">#0EA5E9</color>
+    <color name="background">#F8FAFC</color>
+    <color name="border">#E2E8F0</color>
+    <color name="card_bg">#FFFFFF</color>
+    <color name="danger">#DC2626</color>
+    <color name="primary">#0284C7</color>
+    <color name="primary_dark">#0369A1</color>
+    <color name="success">#16A34A</color>
+    <color name="text_main">#0F172A</color>
+    <color name="text_muted">#64748B</color>
+    <color name="warning">#D97706</color>
+    <string name="app_name">ADBAP Android Worker</string>
+    <string name="btn_login_page">Open Login Page</string>
+    <string name="btn_start_mutation">Test 2: Verified Mutation (/tasks/task_01)</string>
+    <string name="btn_start_readonly">Test 1: Read-Only (/ui-fixtures)</string>
+    <string name="btn_stop">Stop</string>
+    <string name="outcome_title">Outcome:</string>
+    <string name="status_idle">IDLE</string>
+    <string name="status_ready">Worker Ready</string>
+    <string name="target_adb_reverse">ADB Reverse (127.0.0.1:8001)</string>
+    <string name="target_emulator">Emulator (10.0.2.2:8001)</string>
+    <string name="target_label">Target Endpoint:</string>
+    <string name="target_lan">LAN (192.168.1.122:8001)</string>
+    <string name="target_wifi">Host (172.16.1.2:8001)</string>
+</resources>

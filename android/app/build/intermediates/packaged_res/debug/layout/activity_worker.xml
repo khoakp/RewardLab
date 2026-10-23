@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background"
+    android:padding="8dp">
+
+    <!-- Top Header & Status Card -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/card_bg"
+        android:padding="12dp"
+        android:elevation="2dp"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/tvAppTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@color/primary_dark" />
+
+        <TextView
+            android:id="@+id/tvDeviceNotice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Target: LG-H872 (API 26, Snapdragon 821, 4GB RAM)"
+            android:textSize="11sp"
+            android:textColor="@color/text_muted"
+            android:layout_marginBottom="6dp" />
+
+        <!-- Target Endpoint Selection -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/target_label"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_main" />
+
+        <RadioGroup
+            android:id="@+id/rgEndpoints"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="6dp">
+
+            <RadioButton
+                android:id="@+id/rbEndpointLan"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/target_lan"
+                android:textSize="12sp"
+                android:checked="true" />
+
+            <RadioButton
+                android:id="@+id/rbEndpointWifi"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/target_wifi"
+                android:textSize="12sp" />
+
+            <RadioButton
+                android:id="@+id/rbEndpointReverse"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/target_adb_reverse"
+                android:textSize="12sp" />
+
+            <RadioButton
+                android:id="@+id/rbEndpointEmulator"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/target_emulator"
+                android:textSize="12sp" />
+        </RadioGroup>
+
+        <!-- Current Step & Outcome Status -->
+        <TextView
+            android:id="@+id/tvCurrentStep"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Current Step: Idle"
+            android:textSize="13sp"
+            android:textColor="@color/text_main"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvOutcome"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Outcome: READY"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@color/primary"
+            android:layout_marginTop="2dp" />
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:indeterminate="true"
+            android:visibility="gone"
+            android:layout_marginTop="4dp" />
+    </LinearLayout>
+
+    <!-- Controls Row 1 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="4dp">
+
+        <Button
+            android:id="@+id/btnStartReadOnly"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:text="Test 1: Read-Only"
+            android:textSize="11sp"
+            android:textAllCaps="false"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/btnStartMutation"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:text="Test 2: Mutation"
+            android:textSize="11sp"
+            android:textAllCaps="false"
+            android:layout_marginStart="4dp" />
+    </LinearLayout>
+
+    <!-- Controls Row 2 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="6dp">
+
+        <Button
+            android:id="@+id/btnLogin"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="1"
+            android:text="Open Login"
+            android:textSize="11sp"
+            android:textAllCaps="false"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/btnStop"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="1"
+            android:text="Stop"
+            android:textSize="11sp"
+            android:textAllCaps="false"
+            android:enabled="false"
+            android:layout_marginStart="4dp" />
+    </LinearLayout>
+
+    <!-- Execution Logs TextView -->
+    <TextView
+        android:id="@+id/tvLogs"
+        android:layout_width="match_parent"
+        android:layout_height="70dp"
+        android:background="#1E293B"
+        android:textColor="#F1F5F9"
+        android:textSize="10sp"
+        android:fontFamily="monospace"
+        android:padding="6dp"
+        android:scrollbars="vertical"
+        android:text="[ADBAP Engine] Initialized. Ready for workflow dispatch.\n"
+        android:layout_marginBottom="6dp" />
+
+    <!-- Real WebView Hierarchy -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Active WebView Surface:"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_muted"
+        android:layout_marginBottom="2dp" />
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@android:color/white" />
+
+</LinearLayout>

@@ -1,0 +1,14 @@
+[
+    {
+        "merged": "C:\\Users\\KhanhKhoa\\.gradle\\daemon\\8.4\\org.adbap.android.worker.app-merged_res-31:\\layout_activity_worker.xml.flat",
+        "source": "C:\\Users\\KhanhKhoa\\.gradle\\daemon\\8.4\\org.adbap.android.worker.app-main-33:\\layout\\activity_worker.xml"
+    },
+    {
+        "merged": "org.adbap.android.worker.app-merged_res-31:/drawable_ic_launcher.xml.flat",
+        "source": "org.adbap.android.worker.app-main-33:/drawable/ic_launcher.xml"
+    },
+    {
+        "merged": "C:\\Users\\KhanhKhoa\\.gradle\\daemon\\8.4\\org.adbap.android.worker.app-merged_res-31:\\xml_network_security_config.xml.flat",
+        "source": "C:\\Users\\KhanhKhoa\\.gradle\\daemon\\8.4\\org.adbap.android.worker.app-main-33:\\xml\\network_security_config.xml"
+    }
+]

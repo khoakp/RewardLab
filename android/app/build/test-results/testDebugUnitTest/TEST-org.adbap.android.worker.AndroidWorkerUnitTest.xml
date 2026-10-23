@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="org.adbap.android.worker.AndroidWorkerUnitTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-23T14:24:46" hostname="LAPTOP-20LMU3L0" time="0.039">
+  <properties/>
+  <testcase name="testNetworkConfigDeniesPathTraversal" classname="org.adbap.android.worker.AndroidWorkerUnitTest" time="0.026"/>
+  <testcase name="testDomVerificationParsingPending" classname="org.adbap.android.worker.AndroidWorkerUnitTest" time="0.003"/>
+  <testcase name="testNetworkConfigDeniesSchemeRelative" classname="org.adbap.android.worker.AndroidWorkerUnitTest" time="0.0"/>
+  <testcase name="testDomVerificationParsingReviewed" classname="org.adbap.android.worker.AndroidWorkerUnitTest" time="0.0"/>
+  <testcase name="testNetworkConfigDeniesPublicInternet" classname="org.adbap.android.worker.AndroidWorkerUnitTest" time="0.008"/>
+  <testcase name="testNetworkConfigAllowedEndpoints" classname="org.adbap.android.worker.AndroidWorkerUnitTest" time="0.0"/>
+  <testcase name="testDomVerificationParsingNotFound" classname="org.adbap.android.worker.AndroidWorkerUnitTest" time="0.0"/>
+  <testcase name="testNetworkConfigDeniesEmbeddedUserInfo" classname="org.adbap.android.worker.AndroidWorkerUnitTest" time="0.0"/>
+  <testcase name="testNetworkConfigOriginAllowedMatching" classname="org.adbap.android.worker.AndroidWorkerUnitTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
