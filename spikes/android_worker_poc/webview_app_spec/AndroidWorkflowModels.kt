@@ -1,29 +1,19 @@
 package org.adbap.android.worker
 
-/**
- * Data models for ADBAP Workflow DSL v1 execution in Android WebView runtime.
- */
-data class AndroidWorkflowDefinition(
-    val id: String,
-    val provider: String,
-    val schemaVersion: Int = 1,
-    val description: String? = null,
-    val steps: List<AndroidWorkflowStep>
-)
+enum class OutcomeType {
+    STATE_VERIFIED,
+    OUTCOME_UNCONFIRMED,
+    READ_ONLY_VERIFIED,
+    AUTH_REQUIRED,
+    NAVIGATION_FAILED,
+    ELEMENT_NOT_FOUND,
+    STATE_MISMATCH,
+    PROVIDER_REJECTED,
+    STOPPED_BY_OPERATOR,
+    EXECUTION_FAILED
+}
 
-data class AndroidWorkflowStep(
-    val id: String,
-    val action: String,
-    val path: String? = null,
-    val url: String? = null,
-    val target: String? = null,
-    val sideEffect: Boolean = false,
-    val verifiesStepIds: List<String>? = null,
-    val reason: String? = null,
-    val timeoutSeconds: Int = 10
-)
-
-enum class AndroidStepStatus {
+enum class StepStatus {
     PENDING,
     RUNNING,
     SUCCESS,
@@ -31,26 +21,33 @@ enum class AndroidStepStatus {
     SKIPPED
 }
 
-data class AndroidStepExecutionResult(
+data class StepExecutionResult(
     val stepId: String,
     val action: String,
-    val status: AndroidStepStatus,
-    val isMutating: Boolean = false,
-    val durationMs: Long = 0,
-    val errorMessage: String? = null
+    val status: StepStatus,
+    val durationMs: Long = 0L,
+    val detail: String = "",
+    val verified: Boolean = false
 )
 
-data class AndroidJobExecutionResult(
+data class JobExecutionResult(
     val workflowId: String,
-    val executionId: String,
-    val accountId: String,
-    val status: String,
-    val outcomeType: String,
-    val verifiedMutations: List<String>,
-    val unverifiedMutations: List<String>,
-    val errorCode: String?,
-    val errorMessage: String?,
-    val requiresVerification: Boolean,
-    val durationSeconds: Double,
-    val steps: List<AndroidStepExecutionResult>
+    val targetUrl: String,
+    val outcomeType: OutcomeType,
+    val verifiedMutations: List<String> = emptyList(),
+    val unverifiedMutations: List<String> = emptyList(),
+    val durationSeconds: Double = 0.0,
+    val stepResults: List<StepExecutionResult> = emptyList(),
+    val summary: String = ""
+)
+
+data class DomVerificationResult(
+    val found: Boolean,
+    val text: String? = null,
+    val statusText: String? = null,
+    val hasSuccessAlert: Boolean = false,
+    val buttonDisabled: Boolean = false,
+    val isPending: Boolean = false,
+    val isReviewed: Boolean = false,
+    val errorMessage: String? = null
 )
